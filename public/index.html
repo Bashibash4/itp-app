@@ -1,1 +1,1024 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ITP Photos">
+<meta name="theme-color" content="#0f1923">
+<title>ITP Photo Manager</title>
+<style>
+:root{--bg:#0f1923;--surface:#1a2535;--surface2:#233040;--border:rgba(255,255,255,0.08);--border2:rgba(255,255,255,0.14);--text:#f0f4f8;--text2:#8fa3b8;--text3:#5a7a94;--accent:#f0a500;--accent-dim:rgba(240,165,0,0.15);--green:#1ebd7a;--green-dim:rgba(30,189,122,0.14);--red:#e05050;--blue:#3a8fd4;--radius:14px;--radius-sm:8px;}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:-apple-system,'SF Pro Text','Helvetica Neue',sans-serif;font-size:16px;-webkit-font-smoothing:antialiased;overflow:hidden;}
+#app{height:100%;display:flex;flex-direction:column;max-width:480px;margin:0 auto;position:relative;overflow:hidden;}
+.screen{display:none;flex-direction:column;flex:1;overflow:hidden;}
+.screen.active{display:flex;}
+.scroll-body{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:0 16px 100px;}
+.topbar{display:flex;align-items:center;padding:14px 16px 10px;gap:10px;flex-shrink:0;}
+.topbar-title{font-size:20px;font-weight:700;letter-spacing:-0.4px;flex:1;}
+.icon-btn{width:38px;height:38px;border-radius:50%;background:var(--surface);border:0.5px solid var(--border2);display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--text2);flex-shrink:0;}
+.icon-btn:active{background:var(--surface2);}
+.back-btn{display:flex;align-items:center;gap:4px;color:var(--accent);font-size:15px;cursor:pointer;padding:4px 0;background:none;border:none;font-family:inherit;flex-shrink:0;}
+.back-btn svg{width:18px;height:18px;}
+.section-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:var(--text3);margin:20px 0 8px;}
+.breadcrumb{display:flex;align-items:center;flex-wrap:wrap;gap:2px;padding:2px 16px 10px;font-size:12px;color:var(--text3);flex-shrink:0;}
+.breadcrumb-item{color:var(--text3);cursor:pointer;padding:2px 4px;border-radius:4px;white-space:nowrap;}
+.breadcrumb-item.active{color:var(--text);cursor:default;}
+.breadcrumb-sep{opacity:0.4;}
+.folder-list{display:flex;flex-direction:column;gap:8px;}
+.folder-card{background:var(--surface);border:0.5px solid var(--border);border-radius:var(--radius);padding:13px 14px;display:flex;align-items:center;gap:13px;cursor:pointer;transition:background 0.15s,transform 0.1s;position:relative;overflow:hidden;}
+.folder-card:active{background:var(--surface2);transform:scale(0.985);}
+.folder-card.has-photos::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--accent);border-radius:3px 0 0 3px;}
+.folder-icon-wrap{width:44px;height:44px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;}
+.depth-0 .folder-icon-wrap{background:rgba(240,165,0,0.15);}
+.depth-1 .folder-icon-wrap{background:rgba(58,143,212,0.15);}
+.depth-2 .folder-icon-wrap{background:rgba(30,189,122,0.15);}
+.depth-3 .folder-icon-wrap{background:rgba(180,100,220,0.15);}
+.folder-info{flex:1;min-width:0;}
+.folder-name{font-size:15px;font-weight:600;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.folder-meta{font-size:12px;color:var(--text2);margin-top:2px;}
+.folder-right{display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0;}
+.folder-count-badge{font-size:12px;font-weight:600;background:var(--surface2);color:var(--text2);padding:3px 9px;border-radius:20px;border:0.5px solid var(--border2);}
+.add-btn{width:100%;padding:13px;border-radius:var(--radius);border:1.5px dashed var(--border2);background:transparent;color:var(--text2);font-size:13px;font-family:inherit;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;margin-top:8px;}
+.add-btn:active{border-color:var(--accent);color:var(--accent);}
+.photo-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;padding-top:4px;}
+.photo-thumb{aspect-ratio:1;border-radius:var(--radius-sm);overflow:hidden;background:var(--surface);position:relative;cursor:pointer;}
+.photo-thumb img{width:100%;height:100%;object-fit:cover;display:block;}
+.photo-thumb.selected{outline:3px solid var(--accent);outline-offset:-3px;}
+.photo-thumb.selected::after{content:'✓';position:absolute;top:5px;right:5px;width:20px;height:20px;background:var(--accent);border-radius:50%;font-size:11px;font-weight:700;color:#0f1923;line-height:20px;text-align:center;}
+.thumb-overlay{position:absolute;bottom:0;left:0;right:0;padding:20px 6px 5px;background:linear-gradient(transparent,rgba(0,0,0,0.6));display:flex;align-items:flex-end;justify-content:space-between;}
+.thumb-time{font-size:9px;color:rgba(255,255,255,0.75);}
+.thumb-sync{font-size:10px;}
+.cam-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:0 0 14px;}
+.cam-btn{padding:13px 10px;border-radius:var(--radius);border:none;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:transform 0.1s;}
+.cam-btn:active{transform:scale(0.96);}
+.cam-btn svg{width:20px;height:20px;}
+.cam-btn.primary{background:var(--accent);color:#0f1923;}
+.cam-btn.secondary{background:var(--surface2);color:var(--text);border:0.5px solid var(--border2);}
+.stats-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;padding:0 0 8px;}
+.stat-card{background:var(--surface);border:0.5px solid var(--border);border-radius:var(--radius-sm);padding:10px;text-align:center;}
+.stat-num{font-size:20px;font-weight:700;letter-spacing:-0.5px;}
+.stat-lbl{font-size:10px;color:var(--text3);margin-top:1px;text-transform:uppercase;letter-spacing:0.05em;}
+.nav-bar{display:flex;background:var(--surface);border-top:0.5px solid var(--border2);flex-shrink:0;}
+.nav-item{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:10px 0;cursor:pointer;font-size:10px;font-weight:500;color:var(--text3);}
+.nav-item svg{width:24px;height:24px;}
+.nav-item.active{color:var(--accent);}
+.empty-state{text-align:center;padding:40px 24px;color:var(--text3);}
+.empty-state svg{width:48px;height:48px;opacity:0.25;margin:0 auto 14px;display:block;}
+.empty-state p{font-size:13px;line-height:1.6;}
+.empty-state strong{color:var(--text2);}
+.modal-overlay{position:absolute;inset:0;background:rgba(0,0,0,0.65);display:flex;align-items:flex-end;z-index:100;backdrop-filter:blur(4px);}
+.modal-sheet{background:var(--surface);border-radius:20px 20px 0 0;border:0.5px solid var(--border2);padding:20px 20px 32px;width:100%;animation:slide-up 0.22s ease-out;}
+@keyframes slide-up{from{transform:translateY(60px);opacity:0}to{transform:translateY(0);opacity:1}}
+.modal-handle{width:36px;height:4px;background:var(--border2);border-radius:2px;margin:-8px auto 18px;}
+.modal-title{font-size:17px;font-weight:700;margin-bottom:6px;}
+.modal-sub{font-size:13px;color:var(--text2);margin-bottom:16px;}
+.form-group{margin-bottom:12px;}
+.form-label{font-size:12px;color:var(--text2);margin-bottom:5px;display:block;font-weight:500;text-transform:uppercase;letter-spacing:0.05em;}
+.form-input{width:100%;padding:12px 14px;background:var(--bg);border:0.5px solid var(--border2);border-radius:var(--radius-sm);color:var(--text);font-size:15px;font-family:inherit;outline:none;}
+.form-input:focus{border-color:var(--accent);}
+.modal-btns{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:18px;}
+.modal-btn{padding:13px;border-radius:var(--radius-sm);font-size:15px;font-weight:600;font-family:inherit;cursor:pointer;border:none;}
+.btn-cancel{background:var(--surface2);color:var(--text2);}
+.btn-confirm{background:var(--accent);color:#0f1923;}
+.modal-btn-full{width:100%;padding:14px;border-radius:var(--radius-sm);font-size:15px;font-weight:600;font-family:inherit;cursor:pointer;border:none;background:var(--accent);color:#0f1923;margin-top:18px;}
+.lightbox{position:absolute;inset:0;background:#000;z-index:150;display:none;flex-direction:column;}
+.lightbox.open{display:flex;}
+.lightbox-img{flex:1;object-fit:contain;width:100%;}
+.lightbox-bar{display:flex;align-items:center;padding:14px 16px;background:rgba(0,0,0,0.8);gap:12px;}
+.lightbox-info{flex:1;}
+.lightbox-name{font-size:12px;font-weight:600;word-break:break-all;}
+.lightbox-time{font-size:11px;color:#888;margin-top:2px;}
+.lightbox-del{background:rgba(224,80,80,0.2);border:0.5px solid rgba(224,80,80,0.4);color:var(--red);border-radius:var(--radius-sm);padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;}
+.settings-section{background:var(--surface);border:0.5px solid var(--border);border-radius:var(--radius);margin-bottom:16px;overflow:hidden;}
+.settings-row{display:flex;align-items:center;padding:13px 16px;gap:12px;border-bottom:0.5px solid var(--border);font-size:14px;}
+.settings-row:last-child{border-bottom:none;}
+.settings-row-icon{font-size:18px;width:24px;text-align:center;}
+.settings-row-label{flex:1;color:var(--text);}
+.settings-row-value{color:var(--text3);font-size:13px;text-align:right;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.toast{position:absolute;top:60px;left:50%;transform:translateX(-50%) translateY(-20px);background:rgba(30,189,122,0.95);color:white;font-size:13px;font-weight:600;padding:9px 18px;border-radius:20px;white-space:nowrap;opacity:0;transition:opacity 0.2s,transform 0.2s;pointer-events:none;z-index:200;}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+.toast.error{background:rgba(224,80,80,0.95);}
+.toast.info{background:rgba(58,143,212,0.95);}
+.upload-progress{position:absolute;bottom:80px;left:16px;right:16px;background:var(--surface);border:0.5px solid var(--border2);border-radius:var(--radius-sm);padding:10px 14px;display:flex;align-items:center;gap:10px;font-size:13px;z-index:50;transform:translateY(80px);opacity:0;transition:transform 0.25s,opacity 0.25s;}
+.upload-progress.show{transform:translateY(0);opacity:1;}
+.progress-bar-wrap{flex:1;height:4px;background:var(--surface2);border-radius:2px;overflow:hidden;}
+.progress-bar-fill{height:100%;background:var(--green);border-radius:2px;width:0%;transition:width 0.3s ease;}
+input[type=file]{display:none;}
+.signin-screen{position:absolute;inset:0;background:var(--bg);z-index:500;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 24px;text-align:center;}
+.signin-logo{font-size:64px;margin-bottom:24px;}
+.signin-title{font-size:26px;font-weight:800;letter-spacing:-0.5px;margin-bottom:8px;}
+.signin-sub{font-size:14px;color:var(--text2);line-height:1.6;margin-bottom:40px;}
+.google-btn{display:flex;align-items:center;gap:12px;background:white;color:#3c4043;border:none;border-radius:12px;padding:14px 28px;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit;width:100%;justify-content:center;max-width:320px;}
+.google-btn:active{opacity:0.85;}
+.signin-note{font-size:11px;color:var(--text3);margin-top:20px;line-height:1.6;}
+.loading-overlay{position:absolute;inset:0;background:var(--bg);z-index:400;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;}
+.spinner{width:36px;height:36px;border:3px solid var(--surface2);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-text{font-size:14px;color:var(--text2);}
+#camera-screen{display:none;position:absolute;inset:0;background:#000;z-index:300;flex-direction:column;}
+</style>
+</head>
+<body>
+<div id="app">
+
+<!-- SIGN IN -->
+<div class="signin-screen" id="signin-screen">
+  <div class="signin-logo">🏗️</div>
+  <div class="signin-title">ITP Photo Manager</div>
+  <div class="signin-sub">Sign in once with Google — stay signed in forever on any device.</div>
+  <button class="google-btn" onclick="signIn()">
+    <svg width="20" height="20" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+    Sign in with Google
+  </button>
+  <div class="signin-note">Your photos are stored in your own Google Drive.<br>We never see or store your data.</div>
+</div>
+
+<!-- LOADING -->
+<div class="loading-overlay" id="loading-overlay" style="display:none;">
+  <div class="spinner"></div>
+  <div class="loading-text" id="loading-text">Loading...</div>
+</div>
+
+<!-- PROJECTS -->
+<div class="screen" id="screen-projects">
+  <div class="topbar">
+    <div class="topbar-title">Projects</div>
+    <div class="icon-btn" onclick="showScreen('screen-settings')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </div>
+  </div>
+  <div class="scroll-body" id="projects-body"></div>
+</div>
+
+<!-- BROWSE -->
+<div class="screen" id="screen-browse">
+  <div class="topbar">
+    <div style="flex:1;min-width:0;">
+      <div class="topbar-title" id="browse-title">ITP Photos</div>
+      <div style="font-size:12px;color:var(--text2);margin-top:1px;" id="browse-sub"></div>
+    </div>
+    <div class="icon-btn" onclick="showScreen('screen-settings')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </div>
+  </div>
+  <div class="breadcrumb" id="breadcrumb" style="display:none;"></div>
+  <div class="scroll-body" id="browse-body"></div>
+  <div class="nav-bar">
+    <div class="nav-item active" id="nav-home" onclick="showScreen('screen-browse')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>Home</div>
+    <div class="nav-item" id="nav-recent" onclick="showScreen('screen-recent')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Recent</div>
+    <div class="nav-item" id="nav-projects" onclick="showScreen('screen-projects')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>Projects</div>
+    <div class="nav-item" id="nav-settings" onclick="showScreen('screen-settings')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Settings</div>
+  </div>
+</div>
+
+<!-- RECENT -->
+<div class="screen" id="screen-recent">
+  <div class="topbar"><div class="topbar-title">Recent photos</div></div>
+  <div class="scroll-body" id="recent-body" style="padding-top:8px;"></div>
+  <div class="nav-bar">
+    <div class="nav-item" onclick="showScreen('screen-browse')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>Home</div>
+    <div class="nav-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Recent</div>
+    <div class="nav-item" onclick="showScreen('screen-projects')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>Projects</div>
+    <div class="nav-item" onclick="showScreen('screen-settings')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Settings</div>
+  </div>
+</div>
+
+<!-- SETTINGS -->
+<div class="screen" id="screen-settings">
+  <div class="topbar">
+    <button class="back-btn" onclick="showScreen('screen-browse')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="15 18 9 12 15 6"/></svg>Back</button>
+    <div class="topbar-title" style="text-align:right;">Settings</div>
+  </div>
+  <div class="scroll-body">
+    <div class="section-label">Account</div>
+    <div class="settings-section">
+      <div class="settings-row"><div class="settings-row-icon">👤</div><div class="settings-row-label">Signed in as</div><div class="settings-row-value" id="s-user-email">—</div></div>
+      <div class="settings-row"><div class="settings-row-icon">☁️</div><div class="settings-row-label">Storage</div><div class="settings-row-value">Your Google Drive</div></div>
+      <div class="settings-row" onclick="signOut()" style="cursor:pointer;"><div class="settings-row-icon">🚪</div><div class="settings-row-label" style="color:var(--red);">Sign out</div></div>
+    </div>
+    <div class="section-label">Current project</div>
+    <div class="settings-section">
+      <div class="settings-row"><div class="settings-row-icon">🏗️</div><div class="settings-row-label">Project</div><div class="settings-row-value" id="s-project-name">—</div></div>
+      <div class="settings-row"><div class="settings-row-icon">👷</div><div class="settings-row-label">Engineer</div><div class="settings-row-value" id="s-engineer">—</div></div>
+      <div class="settings-row" onclick="showEditProjectModal(currentProject.id)" style="cursor:pointer;"><div class="settings-row-icon">✏️</div><div class="settings-row-label" style="color:var(--accent);">Edit project</div></div>
+      <div class="settings-row" onclick="showScreen('screen-projects')" style="cursor:pointer;"><div class="settings-row-icon">📋</div><div class="settings-row-label" style="color:var(--accent);">Switch / manage projects</div></div>
+    </div>
+    <div class="section-label">Add to home screen</div>
+    <div class="settings-section">
+      <div class="settings-row" style="flex-direction:column;align-items:flex-start;">
+        <div style="font-size:13px;color:var(--text2);line-height:1.7;width:100%;"><strong style="color:var(--text);">iPhone:</strong> Tap Share in Safari → "Add to Home Screen"<br><strong style="color:var(--text);">Android:</strong> Tap ⋮ in Chrome → "Add to Home Screen"</div>
+      </div>
+    </div>
+    <div style="text-align:center;font-size:11px;color:var(--text3);padding:24px 0 8px;">ITP Photo Manager · v3.0</div>
+  </div>
+  <div class="nav-bar">
+    <div class="nav-item" onclick="showScreen('screen-browse')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>Home</div>
+    <div class="nav-item" onclick="showScreen('screen-recent')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Recent</div>
+    <div class="nav-item" onclick="showScreen('screen-projects')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>Projects</div>
+    <div class="nav-item active"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Settings</div>
+  </div>
+</div>
+
+<!-- MODALS -->
+<div class="modal-overlay" id="modal-folder" style="display:none;" onclick="overlayClick(event,'modal-folder')">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-title">New folder</div>
+    <div class="modal-sub" id="modal-folder-loc"></div>
+    <div class="form-group"><label class="form-label">Folder name</label><input class="form-input" id="f-name" type="text" placeholder="e.g. Level 1, Bathroom, Ceiling"></div>
+    <div class="form-group"><label class="form-label">Description (optional)</label><input class="form-input" id="f-desc" type="text" placeholder="e.g. Wet area waterproofing"></div>
+    <div class="modal-btns"><button class="modal-btn btn-cancel" onclick="hideModal('modal-folder')">Cancel</button><button class="modal-btn btn-confirm" onclick="confirmAddFolder()">Create</button></div>
+  </div>
+</div>
+<div class="modal-overlay" id="modal-edit-folder" style="display:none;" onclick="overlayClick(event,'modal-edit-folder')">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-title">Edit folder</div>
+    <div class="form-group"><label class="form-label">Name</label><input class="form-input" id="ef-name" type="text"></div>
+    <div class="form-group"><label class="form-label">Description</label><input class="form-input" id="ef-desc" type="text"></div>
+    <div class="modal-btns"><button class="modal-btn btn-cancel" style="background:rgba(224,80,80,0.15);color:var(--red);" onclick="deleteFolderConfirm()">Delete</button><button class="modal-btn btn-confirm" onclick="saveEditFolder()">Save</button></div>
+  </div>
+</div>
+<div class="modal-overlay" id="modal-project" style="display:none;" onclick="overlayClick(event,'modal-project')">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="modal-project-title">New project</div>
+    <div class="form-group"><label class="form-label">Project name</label><input class="form-input" id="p-name" type="text" placeholder="e.g. Oran Park School"></div>
+    <div class="form-group"><label class="form-label">Engineer name</label><input class="form-input" id="p-eng" type="text" placeholder="e.g. J. Brennan"></div>
+    <div class="modal-btns">
+      <button class="modal-btn btn-cancel" id="p-delete-btn" style="background:rgba(224,80,80,0.15);color:var(--red);display:none;" onclick="deleteProject()">Delete</button>
+      <button class="modal-btn btn-confirm" id="p-save-btn" onclick="saveProject()">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- Lightbox -->
+<div class="lightbox" id="lightbox">
+  <div style="display:flex;align-items:center;padding:12px 16px;gap:10px;background:rgba(0,0,0,0.7);">
+    <button class="back-btn" onclick="closeLightbox()" style="color:white;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="15 18 9 12 15 6"/></svg>Back</button>
+    <div style="flex:1;text-align:center;font-size:12px;color:#aaa;" id="lb-counter"></div>
+    <button onclick="downloadPhoto()" style="background:rgba(255,255,255,0.12);border:none;color:white;border-radius:8px;padding:6px 12px;font-size:12px;cursor:pointer;font-family:inherit;">Save</button>
+  </div>
+  <img class="lightbox-img" id="lb-img" alt="">
+  <div class="lightbox-bar">
+    <div class="lightbox-info"><div class="lightbox-name" id="lb-name"></div><div class="lightbox-time" id="lb-time"></div></div>
+    <button class="lightbox-del" onclick="deletePhotoFromLightbox()">Delete</button>
+  </div>
+</div>
+
+<!-- In-app camera -->
+<div id="camera-screen" style="display:none;position:absolute;inset:0;background:#000;z-index:300;flex-direction:column;">
+  <video id="cam-video" autoplay playsinline muted style="flex:1;width:100%;object-fit:cover;display:block;"></video>
+  <canvas id="cam-canvas" style="display:none;"></canvas>
+  <div style="position:absolute;top:0;left:0;right:0;padding:16px;display:flex;align-items:center;justify-content:space-between;background:linear-gradient(rgba(0,0,0,0.5),transparent);">
+    <button onclick="closeCamera()" style="background:rgba(0,0,0,0.4);border:none;color:white;font-size:14px;font-weight:600;padding:8px 16px;border-radius:20px;cursor:pointer;font-family:inherit;">✕ Cancel</button>
+    <div id="cam-folder-label" style="font-size:13px;font-weight:600;color:white;background:rgba(0,0,0,0.4);padding:6px 14px;border-radius:20px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></div>
+    <button onclick="flipCamera()" style="background:rgba(0,0,0,0.4);border:none;color:white;font-size:18px;padding:8px 12px;border-radius:20px;cursor:pointer;">🔄</button>
+  </div>
+  <div id="cam-staged-strip" style="position:absolute;bottom:140px;left:0;right:0;padding:0 16px;display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;"></div>
+  <div style="position:absolute;bottom:0;left:0;right:0;padding:24px 24px 48px;display:flex;align-items:center;justify-content:space-between;background:linear-gradient(transparent,rgba(0,0,0,0.7));">
+    <div style="width:56px;text-align:center;"><div id="cam-count-badge" style="display:none;background:var(--accent);color:#0f1923;font-size:13px;font-weight:700;padding:5px 10px;border-radius:20px;white-space:nowrap;"></div></div>
+    <button onclick="capturePhoto()" style="width:72px;height:72px;border-radius:50%;background:white;border:4px solid rgba(255,255,255,0.4);cursor:pointer;flex-shrink:0;" ontouchstart="this.style.transform='scale(0.9)'" ontouchend="this.style.transform='scale(1)'"></button>
+    <button id="cam-done-btn" onclick="doneCapturing()" style="width:56px;background:none;border:none;color:rgba(255,255,255,0.4);font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;text-align:center;">Done</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+<div class="upload-progress" id="uprog"><span id="uprog-lbl" style="font-size:13px;color:var(--text2);white-space:nowrap;"></span><div class="progress-bar-wrap"><div class="progress-bar-fill" id="uprog-bar"></div></div></div>
+<input type="file" id="cam-input" accept="image/*" multiple>
+<input type="file" id="gal-input" accept="image/*" multiple>
+</div>
+
+<script>
+// ─── AUTH ────────────────────────────────────────────────
+let accessToken=null;
+let refreshToken=null;
+let currentUser=null;
+let tokenExpiry=0;
+
+function signIn(){
+  window.location.href='/.netlify/functions/auth/login';
+}
+
+function signOut(){
+  accessToken=null; refreshToken=null; currentUser=null; tokenExpiry=0;
+  localStorage.removeItem('itp_session');
+  S={projects:[],currentProjectId:null,_indexFileId:null};
+  currentProject={id:null,name:'',engineer:'',folders:[],photos:{}};
+  driveFolderIds={}; appRootId=null;
+  navStack=[null]; stagingPhotos=[]; stagingFolderId=null;
+  document.getElementById('signin-screen').style.display='flex';
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+}
+
+async function getAccessToken(){
+  // Return valid token or refresh it silently
+  if(accessToken && Date.now() < tokenExpiry-60000) return accessToken;
+  if(!refreshToken) { signOut(); return null; }
+  try {
+    const r=await fetch('/.netlify/functions/auth/refresh',{
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({refresh_token:refreshToken})
+    });
+    const d=await r.json();
+    if(d.error){ signOut(); return null; }
+    accessToken=d.access_token;
+    tokenExpiry=Date.now()+(d.expires_in*1000);
+    saveSession();
+    return accessToken;
+  } catch(e){ return accessToken; } // use existing if network fails
+}
+
+function saveSession(){
+  localStorage.setItem('itp_session',JSON.stringify({
+    accessToken,refreshToken,tokenExpiry,currentUser
+  }));
+}
+
+function loadSession(){
+  try {
+    const s=JSON.parse(localStorage.getItem('itp_session')||'{}');
+    if(s.refreshToken){
+      accessToken=s.accessToken||null;
+      refreshToken=s.refreshToken;
+      tokenExpiry=s.tokenExpiry||0;
+      currentUser=s.currentUser||null;
+      return true;
+    }
+  } catch(e){}
+  return false;
+}
+
+// ─── STATE ───────────────────────────────────────────────
+const APP_FOLDER='ITP Photos';
+let S={projects:[],currentProjectId:null,_indexFileId:null};
+let currentProject={id:null,name:'',engineer:'',folders:[],photos:{}};
+let driveFolderIds={};
+let appRootId=null;
+let navStack=[null];
+let editingFolderId=null;
+let editingProjectId=null;
+let stagingPhotos=[];
+let stagingFolderId=null;
+let selectMode=false;
+let selectFolderId=null;
+let selectedPhotoIds=new Set();
+let lbPhotos=[],lbIdx=0,lbFolderId=null;
+let cameraStream=null,cameraFacing='environment',cameraCaptures=[];
+
+// ─── DRIVE HELPERS ───────────────────────────────────────
+async function driveList(q){
+  const token=await getAccessToken();
+  const r=await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)&spaces=drive`,
+    {headers:{Authorization:'Bearer '+token}});
+  if(!r.ok) throw new Error('Drive list '+r.status);
+  return r.json();
+}
+async function driveDownload(fileId){
+  const token=await getAccessToken();
+  const r=await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+    {headers:{Authorization:'Bearer '+token}});
+  if(!r.ok) throw new Error('Drive download '+r.status);
+  return r.text();
+}
+async function driveCreate(name,mimeType,parentId,content,contentType){
+  const token=await getAccessToken();
+  const meta=JSON.stringify({name,mimeType,parents:parentId?[parentId]:undefined});
+  if(content!==undefined){
+    const form=new FormData();
+    form.append('metadata',new Blob([meta],{type:'application/json'}));
+    form.append('file',new Blob([content],{type:contentType||mimeType}));
+    const r=await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
+      {method:'POST',headers:{Authorization:'Bearer '+token},body:form});
+    if(!r.ok) throw new Error('Drive create '+r.status);
+    return (await r.json()).id;
+  }
+  const r=await fetch('https://www.googleapis.com/drive/v3/files',
+    {method:'POST',headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:meta});
+  if(!r.ok) throw new Error('Drive mkdir '+r.status);
+  return (await r.json()).id;
+}
+async function drivePatch(fileId,content,contentType){
+  const token=await getAccessToken();
+  const r=await fetch(`https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`,
+    {method:'PATCH',headers:{Authorization:'Bearer '+token,'Content-Type':contentType||'application/json'},body:content});
+  if(!r.ok) throw new Error('Drive patch '+r.status);
+}
+async function driveDelete(fileId){
+  const token=await getAccessToken();
+  await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}`,
+    {method:'DELETE',headers:{Authorization:'Bearer '+token}});
+}
+async function getOrCreateFolder(name,parentId){
+  const safe=name.replace(/'/g,"\\'");
+  const q=parentId
+    ?`name='${safe}' and mimeType='application/vnd.google-apps.folder' and '${parentId}' in parents and trashed=false`
+    :`name='${safe}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+  const res=await driveList(q);
+  if(res.files&&res.files.length) return res.files[0].id;
+  return driveCreate(name,'application/vnd.google-apps.folder',parentId);
+}
+
+// ─── LOAD / SAVE ─────────────────────────────────────────
+async function loadFromDrive(){
+  showLoading('Loading your projects...');
+  try {
+    appRootId=await getOrCreateFolder(APP_FOLDER,null);
+    const q=`name='itp_index.json' and '${appRootId}' in parents and trashed=false`;
+    const res=await driveList(q);
+    if(res.files&&res.files.length){
+      S._indexFileId=res.files[0].id;
+      const data=JSON.parse(await driveDownload(S._indexFileId));
+      S.projects=data.projects||[];
+      S.currentProjectId=data.currentProjectId||null;
+    } else {
+      S={projects:[],currentProjectId:null,_indexFileId:null};
+    }
+    hideLoading();
+    document.getElementById('signin-screen').style.display='none';
+    if(!S.projects.length){ showScreen('screen-projects'); setTimeout(()=>showAddProjectModal(),300); }
+    else await loadProject(S.currentProjectId||S.projects[0].id);
+  } catch(e){
+    hideLoading(); console.error(e);
+    showToast('Failed to load — check connection','error');
+    document.getElementById('signin-screen').style.display='flex';
+  }
+}
+
+async function saveIndex(){
+  const data=JSON.stringify({projects:S.projects,currentProjectId:S.currentProjectId});
+  if(S._indexFileId) await drivePatch(S._indexFileId,data,'application/json');
+  else S._indexFileId=await driveCreate('itp_index.json','application/json',appRootId,data,'application/json');
+}
+
+async function loadProject(pid){
+  showLoading('Loading project...');
+  const proj=S.projects.find(p=>p.id===pid);
+  if(!proj){ hideLoading(); showScreen('screen-projects'); return; }
+  S.currentProjectId=pid;
+  try {
+    proj._driveFolderId=proj._driveFolderId||await getOrCreateFolder(proj.name,appRootId);
+    const q=`name='itp_meta.json' and '${proj._driveFolderId}' in parents and trashed=false`;
+    const res=await driveList(q);
+    if(res.files&&res.files.length){
+      proj.metaFileId=res.files[0].id;
+      const data=JSON.parse(await driveDownload(proj.metaFileId));
+      currentProject={id:pid,name:proj.name,engineer:proj.engineer||'',folders:data.folders||[],photos:data.photos||{}};
+    } else {
+      proj.metaFileId=null;
+      currentProject={id:pid,name:proj.name,engineer:proj.engineer||'',folders:[],photos:{}};
+    }
+    driveFolderIds={}; navStack=[null]; stagingPhotos=[]; stagingFolderId=null;
+    hideLoading(); showScreen('screen-browse'); renderSettings();
+  } catch(e){ hideLoading(); console.error(e); showToast('Failed to load project','error'); }
+}
+
+async function saveMeta(){
+  const proj=S.projects.find(p=>p.id===currentProject.id);
+  if(!proj) return;
+  proj._driveFolderId=proj._driveFolderId||await getOrCreateFolder(proj.name,appRootId);
+  const data=JSON.stringify({folders:currentProject.folders,photos:currentProject.photos});
+  if(proj.metaFileId) await drivePatch(proj.metaFileId,data,'application/json');
+  else proj.metaFileId=await driveCreate('itp_meta.json','application/json',proj._driveFolderId,data,'application/json');
+  await saveIndex();
+}
+
+async function ensureDrivePath(fid){
+  const chain=[];
+  let cur=fid;
+  while(cur){ const f=currentProject.folders.find(x=>x.id===cur); if(!f)break; chain.unshift(f); cur=f.parentId; }
+  const proj=S.projects.find(p=>p.id===currentProject.id);
+  let parentId=proj?._driveFolderId||await getOrCreateFolder(currentProject.name,appRootId);
+  if(proj) proj._driveFolderId=parentId;
+  for(const f of chain){
+    const key=f.id+'__'+parentId;
+    if(!driveFolderIds[key]) driveFolderIds[key]=await getOrCreateFolder(f.name,parentId);
+    parentId=driveFolderIds[key];
+  }
+  return parentId;
+}
+
+// ─── SCREENS ─────────────────────────────────────────────
+function showScreen(id){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  if(id==='screen-browse') renderBrowse();
+  if(id==='screen-recent') renderRecent();
+  if(id==='screen-settings') renderSettings();
+  if(id==='screen-projects') renderProjects();
+}
+function showLoading(t){document.getElementById('loading-overlay').style.display='flex';document.getElementById('loading-text').textContent=t||'Loading...';}
+function hideLoading(){document.getElementById('loading-overlay').style.display='none';}
+
+// ─── NAV ─────────────────────────────────────────────────
+function currentFolderId(){return navStack[navStack.length-1];}
+function navigateTo(fid){
+  if(fid===null) navStack=[null];
+  else{ const i=navStack.indexOf(fid); if(i>=0) navStack=navStack.slice(0,i+1); else navStack.push(fid); }
+  stagingPhotos=[];stagingFolderId=null;selectMode=false;selectedPhotoIds=new Set();
+  renderBrowse();
+}
+function renderBreadcrumb(){
+  const el=document.getElementById('breadcrumb');
+  const parts=navStack.map(fid=>fid===null?{label:currentProject.name||'Home',fid:null}:{label:currentProject.folders.find(x=>x.id===fid)?.name||'',fid});
+  if(parts.length<=1){el.style.display='none';return;}
+  el.style.display='flex';
+  el.innerHTML=parts.map((p,i)=>{
+    const last=i===parts.length-1;
+    const sep=i>0?'<span class="breadcrumb-sep">›</span>':'';
+    return `${sep}<span class="breadcrumb-item${last?' active':''}" onclick="navigateTo(${p.fid===null?'null':"'"+p.fid+"'"})"> ${esc(p.label)}</span>`;
+  }).join('');
+}
+
+// ─── BROWSE ──────────────────────────────────────────────
+function renderBrowse(){
+  const fid=currentFolderId(), depth=navStack.length-1;
+  if(fid===null){
+    document.getElementById('browse-title').textContent=currentProject.name||'ITP Photos';
+    document.getElementById('browse-sub').textContent=currentUser?.name||'';
+  } else {
+    const f=currentProject.folders.find(x=>x.id===fid);
+    document.getElementById('browse-title').textContent=f?.name||'';
+    document.getElementById('browse-sub').textContent=f?.desc||'';
+  }
+  renderBreadcrumb();
+  const body=document.getElementById('browse-body');
+  const subs=currentProject.folders.filter(f=>f.parentId===fid);
+  const fPhotos=fid?Object.values(currentProject.photos).filter(p=>p.folderId===fid):[];
+  const icons=['🏢','🚪','🔨','📐','🪛'];
+  let html='';
+  if(fid===null){
+    const total=Object.values(currentProject.photos).length;
+    const today=new Date().toDateString();
+    const todayCt=Object.values(currentProject.photos).filter(p=>new Date(p.timestamp).toDateString()===today).length;
+    html+=`<div class="stats-row">
+      <div class="stat-card"><div class="stat-num">${currentProject.folders.filter(f=>f.parentId===null).length}</div><div class="stat-lbl">Folders</div></div>
+      <div class="stat-card"><div class="stat-num">${total}</div><div class="stat-lbl">Photos</div></div>
+      <div class="stat-card"><div class="stat-num">${todayCt}</div><div class="stat-lbl">Today</div></div>
+    </div>`;
+  }
+  if(fid) html+=`<div style="display:flex;justify-content:flex-end;margin-bottom:4px;"><button onclick="showEditFolderModal('${fid}')" style="background:none;border:none;color:var(--text3);font-size:12px;cursor:pointer;font-family:inherit;display:flex;align-items:center;gap:4px;padding:4px 0;"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Edit folder</button></div>`;
+  if(subs.length){
+    html+=`<div class="section-label">${fid?'Subfolders':'ITP Folders'}</div><div class="folder-list">`;
+    subs.forEach(f=>{
+      const pc=countAllPhotos(f.id),sc=currentProject.folders.filter(x=>x.parentId===f.id).length;
+      html+=`<div class="folder-card ${pc>0?'has-photos':''} depth-${Math.min(depth,3)}" onclick="navigateTo('${f.id}')">
+        <div class="folder-icon-wrap">${icons[Math.min(depth,4)]}</div>
+        <div class="folder-info"><div class="folder-name">${esc(f.name)}</div><div class="folder-meta">${esc(f.desc||'')}</div></div>
+        <div class="folder-right">${sc?`<span style="font-size:11px;color:var(--text3);">${sc} folder${sc!==1?'s':''}</span>`:''}<span class="folder-count-badge">${pc} 📷</span></div>
+      </div>`;
+    });
+    html+=`</div>`;
+  }
+  if(fid){
+    html+=`<div class="section-label" style="margin-top:${subs.length?'20px':'0'};">Photos</div>`;
+    html+=`<div class="cam-row"><button class="cam-btn primary" onclick="triggerCam()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>Take photos</button><button class="cam-btn secondary" onclick="triggerGal()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>From gallery</button></div>`;
+    if(stagingPhotos.length&&stagingFolderId===fid){
+      html+=`<div style="background:var(--accent-dim);border:0.5px solid rgba(240,165,0,0.3);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:12px;">
+        <div style="font-size:12px;color:var(--accent);font-weight:600;margin-bottom:8px;">${stagingPhotos.length} photo${stagingPhotos.length!==1?'s':''} ready to upload</div>
+        <div style="display:flex;gap:5px;overflow-x:auto;margin-bottom:10px;">
+          ${stagingPhotos.map((p,i)=>`<div style="position:relative;flex-shrink:0;"><img src="${p.dataUrl}" style="width:56px;height:56px;border-radius:7px;object-fit:cover;display:block;"><div onclick="removeStagedPhoto(${i})" style="position:absolute;top:-4px;right:-4px;width:18px;height:18px;background:var(--red);border-radius:50%;font-size:10px;color:white;cursor:pointer;font-weight:700;line-height:18px;text-align:center;">✕</div></div>`).join('')}
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <button onclick="triggerCam()" style="padding:9px;border-radius:var(--radius-sm);border:1.5px dashed rgba(240,165,0,0.5);background:transparent;color:var(--accent);font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;">+ Take more</button>
+          <button onclick="saveAllStaged('${fid}')" style="padding:9px;border-radius:var(--radius-sm);border:none;background:var(--accent);color:#0f1923;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;">Upload ${stagingPhotos.length}</button>
+        </div>
+      </div>`;
+    }
+    if(!fPhotos.length&&!stagingPhotos.length){
+      html+=`<div class="empty-state" style="padding:24px 0;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg><p><strong>No photos yet</strong><br>Tap "Take photos" to start.</p></div>`;
+    } else if(fPhotos.length){
+      const inSel=selectMode&&selectFolderId===fid;
+      const sorted=fPhotos.sort((a,b)=>b.timestamp-a.timestamp);
+      html+=`<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+        <span style="font-size:12px;color:var(--text3);">${fPhotos.length} photo${fPhotos.length!==1?'s':''}</span>
+        ${inSel?`<div style="display:flex;gap:8px;"><button onclick="selectAll('${fid}')" style="background:none;border:none;color:var(--accent);font-size:12px;cursor:pointer;font-family:inherit;">All</button><button onclick="cancelSelectMode()" style="background:none;border:none;color:var(--text3);font-size:12px;cursor:pointer;font-family:inherit;">Cancel</button></div>`
+        :`<button onclick="enterSelectMode('${fid}')" style="background:none;border:none;color:var(--text3);font-size:12px;cursor:pointer;font-family:inherit;">Select</button>`}
+      </div><div class="photo-grid">`;
+      sorted.forEach((p,i)=>{
+        const t=new Date(p.timestamp).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+        const isSel=inSel&&selectedPhotoIds.has(p.driveFileId||p.id);
+        html+=`<div class="photo-thumb${isSel?' selected':''}" onclick="${inSel?`toggleSelect('${p.driveFileId||p.id}')`:`openLightbox('${fid}',${i})`}">
+          <img src="${p.thumbUrl||''}" loading="lazy" alt="" onerror="loadThumb(this,'${p.driveFileId}')">
+          <div class="thumb-overlay"><span class="thumb-time">${t}</span><span class="thumb-sync">☁️</span></div>
+        </div>`;
+      });
+      html+=`</div>`;
+      if(inSel&&selectedPhotoIds.size) html+=`<div style="margin-top:10px;display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <button onclick="cancelSelectMode()" style="padding:11px;border-radius:var(--radius-sm);background:var(--surface2);border:0.5px solid var(--border2);color:var(--text2);font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;">Cancel</button>
+        <button onclick="deleteSelected('${fid}')" style="padding:11px;border-radius:var(--radius-sm);background:rgba(224,80,80,0.15);border:0.5px solid rgba(224,80,80,0.4);color:var(--red);font-size:14px;font-weight:600;cursor:pointer;font-family:inherit;">Delete ${selectedPhotoIds.size}</button>
+      </div>`;
+    }
+  } else if(!subs.length){
+    html+=`<div class="empty-state" style="padding:24px 0;"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg><p><strong>No folders yet</strong><br>Add your first ITP folder below.</p></div>`;
+  }
+  html+=`<button class="add-btn" onclick="showAddFolderModal()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add folder</button>`;
+  body.innerHTML=html;
+}
+
+function countAllPhotos(fid){
+  let c=Object.values(currentProject.photos).filter(p=>p.folderId===fid).length;
+  currentProject.folders.filter(f=>f.parentId===fid).forEach(f=>c+=countAllPhotos(f.id));
+  return c;
+}
+
+async function loadThumb(imgEl,fileId){
+  if(!fileId) return;
+  try {
+    const token=await getAccessToken();
+    const r=await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,{headers:{Authorization:'Bearer '+token}});
+    const blob=await r.blob();
+    const url=URL.createObjectURL(blob);
+    imgEl.src=url;
+    const p=Object.values(currentProject.photos).find(x=>x.driveFileId===fileId);
+    if(p) p.thumbUrl=url;
+  } catch(e){}
+}
+
+// ─── FOLDERS ─────────────────────────────────────────────
+function showAddFolderModal(){
+  document.getElementById('f-name').value='';document.getElementById('f-desc').value='';
+  const fid=currentFolderId();
+  const f=fid?currentProject.folders.find(x=>x.id===fid):null;
+  document.getElementById('modal-folder-loc').textContent=f?'Inside: '+f.name:'Root level';
+  showModal('modal-folder');setTimeout(()=>document.getElementById('f-name').focus(),300);
+}
+async function confirmAddFolder(){
+  const name=document.getElementById('f-name').value.trim();if(!name)return;
+  currentProject.folders.push({id:'f'+Date.now(),parentId:currentFolderId(),name,desc:document.getElementById('f-desc').value.trim(),createdAt:Date.now()});
+  hideModal('modal-folder');renderBrowse();showToast('📁 '+name+' created');
+  try{await saveMeta();}catch(e){}
+}
+function showEditFolderModal(fid){
+  editingFolderId=fid;
+  const f=currentProject.folders.find(x=>x.id===fid);if(!f)return;
+  document.getElementById('ef-name').value=f.name;document.getElementById('ef-desc').value=f.desc||'';
+  showModal('modal-edit-folder');
+}
+async function saveEditFolder(){
+  const name=document.getElementById('ef-name').value.trim();if(!name)return;
+  const f=currentProject.folders.find(x=>x.id===editingFolderId);if(!f)return;
+  f.name=name;f.desc=document.getElementById('ef-desc').value.trim();
+  hideModal('modal-edit-folder');renderBrowse();showToast('✅ Folder updated');
+  try{await saveMeta();}catch(e){}
+}
+async function deleteFolderConfirm(){
+  if(!confirm('Delete this folder and ALL subfolders and photos inside it?'))return;
+  function collectIds(fid){const ids=[fid];currentProject.folders.filter(f=>f.parentId===fid).forEach(f=>ids.push(...collectIds(f.id)));return ids;}
+  const ids=collectIds(editingFolderId);
+  const photos=Object.values(currentProject.photos).filter(p=>ids.includes(p.folderId));
+  for(const p of photos){if(p.driveFileId)try{await driveDelete(p.driveFileId);}catch(e){}; delete currentProject.photos[p.driveFileId||p.id];}
+  currentProject.folders=currentProject.folders.filter(f=>!ids.includes(f.id));
+  navStack=navStack.filter(id=>!ids.includes(id));if(!navStack.length)navStack=[null];
+  hideModal('modal-edit-folder');renderBrowse();showToast('🗑️ Folder deleted');
+  try{await saveMeta();}catch(e){}
+}
+
+// ─── PROJECTS ────────────────────────────────────────────
+function showAddProjectModal(){
+  editingProjectId=null;
+  document.getElementById('p-name').value='';document.getElementById('p-eng').value='';
+  document.getElementById('modal-project-title').textContent='New project';
+  document.getElementById('p-save-btn').textContent='Create';
+  document.getElementById('p-delete-btn').style.display='none';
+  document.getElementById('p-save-btn').style.gridColumn='1/-1';
+  showModal('modal-project');setTimeout(()=>document.getElementById('p-name').focus(),300);
+}
+function showEditProjectModal(pid){
+  editingProjectId=pid;
+  const proj=S.projects.find(p=>p.id===pid);if(!proj)return;
+  document.getElementById('p-name').value=proj.name;document.getElementById('p-eng').value=proj.engineer||'';
+  document.getElementById('modal-project-title').textContent='Edit project';
+  document.getElementById('p-save-btn').textContent='Save';
+  document.getElementById('p-delete-btn').style.display='block';
+  document.getElementById('p-save-btn').style.gridColumn='';
+  showModal('modal-project');
+}
+async function saveProject(){
+  const name=document.getElementById('p-name').value.trim();if(!name)return;
+  const eng=document.getElementById('p-eng').value.trim();
+  if(editingProjectId){
+    const proj=S.projects.find(p=>p.id===editingProjectId);
+    if(proj){proj.name=name;proj.engineer=eng;}
+    if(currentProject.id===editingProjectId){currentProject.name=name;currentProject.engineer=eng;}
+    hideModal('modal-project');renderBrowse();renderSettings();renderProjects();showToast('✅ Project updated');
+    try{await saveMeta();}catch(e){}
+  } else {
+    const pid='p'+Date.now();
+    S.projects.push({id:pid,name,engineer:eng,metaFileId:null});
+    hideModal('modal-project');showToast('✅ '+name+' created');
+    try{await saveIndex();}catch(e){}
+    await loadProject(pid);
+  }
+}
+async function deleteProject(){
+  if(!confirm('Delete this project? Folders in Drive will remain.'))return;
+  S.projects=S.projects.filter(p=>p.id!==editingProjectId);
+  if(S.currentProjectId===editingProjectId) S.currentProjectId=S.projects[0]?.id||null;
+  hideModal('modal-project');
+  try{await saveIndex();}catch(e){}
+  if(S.projects.length) await loadProject(S.currentProjectId);
+  else{showScreen('screen-projects');renderProjects();setTimeout(()=>showAddProjectModal(),300);}
+}
+function renderProjects(){
+  const body=document.getElementById('projects-body');if(!body)return;
+  let html='';
+  if(!S.projects.length){
+    html+=`<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg><p><strong>No projects yet</strong><br>Create your first project below.</p></div>`;
+  } else {
+    html+=`<div class="section-label">Your projects</div><div class="folder-list">`;
+    S.projects.forEach(proj=>{
+      const active=proj.id===S.currentProjectId;
+      html+=`<div class="folder-card ${active?'has-photos':''}">
+        <div class="folder-icon-wrap" style="background:rgba(240,165,0,0.15);" onclick="loadProject('${proj.id}')">🏗️</div>
+        <div class="folder-info" onclick="loadProject('${proj.id}')" style="cursor:pointer;">
+          <div class="folder-name">${esc(proj.name)}</div>
+          <div class="folder-meta">${esc(proj.engineer||'No engineer set')}${active?' · <span style=color:var(--green)>Active</span>':''}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <button onclick="showEditProjectModal('${proj.id}')" style="background:none;border:none;color:var(--text3);cursor:pointer;padding:4px;font-size:16px;">✏️</button>
+        </div>
+      </div>`;
+    });
+    html+=`</div>`;
+  }
+  html+=`<button class="add-btn" onclick="showAddProjectModal()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>New project</button>`;
+  body.innerHTML=html;
+}
+function renderSettings(){
+  if(currentUser) document.getElementById('s-user-email').textContent=currentUser.email||'';
+  document.getElementById('s-project-name').textContent=currentProject.name||'—';
+  document.getElementById('s-engineer').textContent=currentProject.engineer||'—';
+}
+
+// ─── CAMERA ──────────────────────────────────────────────
+document.getElementById('cam-input').addEventListener('change',e=>stageFiles(e));
+document.getElementById('gal-input').addEventListener('change',e=>stageFiles(e));
+async function triggerCam(){
+  const fid=currentFolderId();if(!fid)return;
+  if(stagingFolderId&&stagingFolderId!==fid){stagingPhotos=[];stagingFolderId=null;}
+  stagingFolderId=fid;
+  if(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia){
+    try{await openCamera(fid);return;}catch(e){}
+  }
+  document.getElementById('cam-input').click();
+}
+function triggerGal(){
+  const fid=currentFolderId();if(!fid)return;
+  if(stagingFolderId&&stagingFolderId!==fid){stagingPhotos=[];stagingFolderId=null;}
+  stagingFolderId=fid;
+  document.getElementById('gal-input').click();
+}
+function stageFiles(e){
+  const files=Array.from(e.target.files);e.target.value='';if(!files.length)return;
+  let n=0;
+  files.forEach(f=>{const r=new FileReader();r.onload=ev=>{stagingPhotos.push({dataUrl:ev.target.result});n++;if(n===files.length)renderBrowse();};r.readAsDataURL(f);});
+}
+function removeStagedPhoto(i){stagingPhotos.splice(i,1);if(!stagingPhotos.length)stagingFolderId=null;renderBrowse();}
+
+// Build full folder path label e.g. "Level 1 > Bathrooms > Ceiling"
+function getFolderPathLabel(fid){
+  const parts=[];let cur=fid;
+  while(cur){const f=currentProject.folders.find(x=>x.id===cur);if(!f)break;parts.unshift(f.name);cur=f.parentId;}
+  return parts.join(' > ');
+}
+
+// Compress + watermark a dataUrl, returns new dataUrl
+function processPhoto(dataUrl, watermarkText){
+  return new Promise((resolve)=>{
+    const img=new Image();
+    img.onload=()=>{
+      // Resize: max 1600px wide, keeps aspect ratio
+      const MAX=1600;
+      let w=img.width, h=img.height;
+      if(w>MAX){h=Math.round(h*MAX/w);w=MAX;}
+      const c=document.createElement('canvas');
+      c.width=w; c.height=h;
+      const ctx=c.getContext('2d');
+      ctx.drawImage(img,0,0,w,h);
+
+      // Watermark bar at bottom
+      const barH=Math.max(36, Math.round(h*0.055));
+      ctx.fillStyle='rgba(0,0,0,0.62)';
+      ctx.fillRect(0, h-barH, w, barH);
+
+      // Text sizing
+      const fontSize=Math.max(13, Math.round(barH*0.48));
+      ctx.font=`600 ${fontSize}px -apple-system, sans-serif`;
+      ctx.fillStyle='white';
+      ctx.textBaseline='middle';
+
+      // Left: folder path
+      ctx.textAlign='left';
+      ctx.fillText(watermarkText.path, 10, h-barH/2, w*0.65);
+
+      // Right: date + time
+      ctx.textAlign='right';
+      ctx.fillStyle='rgba(255,255,255,0.75)';
+      ctx.fillText(watermarkText.date, w-10, h-barH/2);
+
+      resolve(c.toDataURL('image/jpeg', 0.82)); // 0.82 quality = good balance
+    };
+    img.src=dataUrl;
+  });
+}
+
+async function saveAllStaged(fid){
+  if(!stagingPhotos.length)return;
+  const folder=currentProject.folders.find(f=>f.id===fid);if(!folder)return;
+  const total=stagingPhotos.length;
+  showProg(0,'Processing photos...');
+  try {
+    const driveFid=await ensureDrivePath(fid);
+    const pathLabel=getFolderPathLabel(fid);
+    let done=0;
+    for(const sp of stagingPhotos){
+      const ts=Date.now()+done;
+      const d=new Date(ts);
+      const ds=`${d.getFullYear()}${pad(d.getMonth()+1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}`;
+      const proj=(currentProject.name||'ITP').replace(/[^a-zA-Z0-9]/g,'_');
+      const seq=String(Object.values(currentProject.photos).filter(p=>p.folderId===fid).length+done+1).padStart(3,'0');
+      const fname=`${proj}_${folder.name.replace(/[^a-zA-Z0-9]/g,'_')}_${ds}_${seq}.jpg`;
+
+      showProg(Math.round(done/total*80),'Processing '+(done+1)+' of '+total+'...');
+
+      // Compress + watermark
+      const dateStr=d.toLocaleDateString('en-AU',{day:'2-digit',month:'short',year:'numeric'})+' '+d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+      const processed=await processPhoto(sp.dataUrl,{
+        path: currentProject.name ? currentProject.name+' · '+pathLabel : pathLabel,
+        date: dateStr
+      });
+
+      showProg(Math.round((done+0.5)/total*80+10),'Uploading '+(done+1)+' of '+total+'...');
+
+      // Upload to Drive
+      const token=await getAccessToken();
+      const blob=await(await fetch(processed)).blob();
+      const meta=JSON.stringify({name:fname,parents:[driveFid]});
+      const form=new FormData();
+      form.append('metadata',new Blob([meta],{type:'application/json'}));
+      form.append('file',blob);
+      const r=await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
+        {method:'POST',headers:{Authorization:'Bearer '+token},body:form});
+      if(!r.ok) throw new Error('Upload '+r.status);
+      const {id:driveFileId}=await r.json();
+      currentProject.photos[driveFileId]={id:ts,driveFileId,name:fname,timestamp:ts,folderId:fid,thumbUrl:processed};
+      done++;
+    }
+    stagingPhotos=[];stagingFolderId=null;
+    showProg(100,'Saving...');
+    await saveMeta();
+    setTimeout(hideProg,600);renderBrowse();
+    showToast(`📸 ${total} photo${total!==1?'s':''} uploaded`);
+  } catch(e){hideProg();console.error(e);showToast('Upload failed: '+e.message,'error');}
+}
+
+// ─── IN-APP CAMERA ───────────────────────────────────────
+async function openCamera(fid){
+  cameraCaptures=[];
+  const el=document.getElementById('camera-screen');
+  el.style.display='flex';el.style.flexDirection='column';
+  document.getElementById('cam-folder-label').textContent=currentProject.folders.find(f=>f.id===fid)?.name||'';
+  updateCamStrip();await startCameraStream();
+}
+async function startCameraStream(){
+  if(cameraStream)cameraStream.getTracks().forEach(t=>t.stop());
+  try{
+    cameraStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:cameraFacing,width:{ideal:1920},height:{ideal:1080}},audio:false});
+    document.getElementById('cam-video').srcObject=cameraStream;
+  }catch(e){closeCamera();document.getElementById('cam-input').click();}
+}
+function flipCamera(){cameraFacing=cameraFacing==='environment'?'user':'environment';startCameraStream();}
+function capturePhoto(){
+  const v=document.getElementById('cam-video'),c=document.getElementById('cam-canvas');
+  c.width=v.videoWidth||1280;c.height=v.videoHeight||720;
+  c.getContext('2d').drawImage(v,0,0,c.width,c.height);
+  const url=c.toDataURL('image/jpeg',0.82);
+  cameraCaptures.push(url);stagingPhotos.push({dataUrl:url});updateCamStrip();
+  const f=document.createElement('div');
+  f.style.cssText='position:absolute;inset:0;background:white;opacity:0.7;pointer-events:none;z-index:10;transition:opacity 0.12s;';
+  document.getElementById('camera-screen').appendChild(f);
+  setTimeout(()=>{f.style.opacity='0';setTimeout(()=>f.remove(),120);},20);
+}
+function updateCamStrip(){
+  const strip=document.getElementById('cam-staged-strip'),badge=document.getElementById('cam-count-badge'),done=document.getElementById('cam-done-btn');
+  if(!cameraCaptures.length){strip.innerHTML='';badge.style.display='none';done.style.color='rgba(255,255,255,0.4)';return;}
+  badge.style.display='block';badge.textContent=cameraCaptures.length+' photo'+(cameraCaptures.length!==1?'s':'');
+  done.style.color='white';
+  strip.innerHTML=cameraCaptures.slice(-8).map(d=>`<img src="${d}" style="width:52px;height:52px;border-radius:8px;object-fit:cover;flex-shrink:0;border:2px solid rgba(255,255,255,0.4);">`).join('');
+  strip.scrollLeft=strip.scrollWidth;
+}
+function doneCapturing(){closeCamera();if(stagingPhotos.length)renderBrowse();}
+function closeCamera(){
+  if(cameraStream){cameraStream.getTracks().forEach(t=>t.stop());cameraStream=null;}
+  document.getElementById('camera-screen').style.display='none';cameraCaptures=[];
+}
+
+// ─── SELECT / DELETE ─────────────────────────────────────
+function enterSelectMode(fid){selectMode=true;selectFolderId=fid;selectedPhotoIds=new Set();renderBrowse();}
+function cancelSelectMode(){selectMode=false;selectFolderId=null;selectedPhotoIds=new Set();renderBrowse();}
+function toggleSelect(pid){if(selectedPhotoIds.has(pid))selectedPhotoIds.delete(pid);else selectedPhotoIds.add(pid);renderBrowse();}
+function selectAll(fid){Object.values(currentProject.photos).filter(p=>p.folderId===fid).forEach(p=>selectedPhotoIds.add(p.driveFileId||p.id));renderBrowse();}
+async function deleteSelected(fid){
+  const count=selectedPhotoIds.size;if(!count)return;
+  if(!confirm(`Delete ${count} photo${count!==1?'s':''}?`))return;
+  showProg(0,'Deleting...');let done=0;
+  for(const pid of selectedPhotoIds){
+    try{await driveDelete(pid);}catch(e){}
+    delete currentProject.photos[pid];done++;
+    showProg(Math.round(done/count*100),'Deleting '+done+' of '+count);
+  }
+  await saveMeta();hideProg();cancelSelectMode();showToast(`🗑️ ${count} photo${count!==1?'s':''} deleted`);
+}
+
+// ─── LIGHTBOX ────────────────────────────────────────────
+function openLightbox(fid,idx){
+  lbFolderId=fid;
+  lbPhotos=Object.values(currentProject.photos).filter(p=>p.folderId===fid).sort((a,b)=>b.timestamp-a.timestamp);
+  lbIdx=idx;updateLB();document.getElementById('lightbox').classList.add('open');
+}
+function updateLB(){
+  const p=lbPhotos[lbIdx];if(!p)return;
+  const img=document.getElementById('lb-img');
+  if(p.thumbUrl)img.src=p.thumbUrl;
+  else if(p.driveFileId){img.src='';loadThumb(img,p.driveFileId);}
+  document.getElementById('lb-name').textContent=p.name;
+  document.getElementById('lb-time').textContent=new Date(p.timestamp).toLocaleString()+' · ☁️';
+  document.getElementById('lb-counter').textContent=`${lbIdx+1} of ${lbPhotos.length}`;
+}
+function closeLightbox(){document.getElementById('lightbox').classList.remove('open');}
+function downloadPhoto(){const p=lbPhotos[lbIdx];if(!p||!p.thumbUrl)return;const a=document.createElement('a');a.href=p.thumbUrl;a.download=p.name;a.click();}
+async function deletePhotoFromLightbox(){
+  const p=lbPhotos[lbIdx];if(!p||!confirm('Delete this photo?'))return;
+  try{if(p.driveFileId)await driveDelete(p.driveFileId);}catch(e){}
+  delete currentProject.photos[p.driveFileId||p.id];
+  await saveMeta();
+  lbPhotos=lbPhotos.filter(x=>x!==p);
+  if(!lbPhotos.length){closeLightbox();renderBrowse();return;}
+  if(lbIdx>=lbPhotos.length)lbIdx=lbPhotos.length-1;
+  updateLB();renderBrowse();showToast('🗑️ Photo deleted');
+}
+let tX=0;
+document.getElementById('lightbox').addEventListener('touchstart',e=>{tX=e.touches[0].clientX;});
+document.getElementById('lightbox').addEventListener('touchend',e=>{const dx=e.changedTouches[0].clientX-tX;if(Math.abs(dx)<50)return;if(dx<0&&lbIdx<lbPhotos.length-1){lbIdx++;updateLB();}if(dx>0&&lbIdx>0){lbIdx--;updateLB();}});
+
+// ─── RECENT ──────────────────────────────────────────────
+function renderRecent(){
+  const body=document.getElementById('recent-body');
+  function getLabel(fid){const f=currentProject.folders.find(x=>x.id===fid);if(!f)return'';const p=getLabel(f.parentId);return p?p+' › '+f.name:f.name;}
+  const all=Object.values(currentProject.photos).map(p=>({...p,folderLabel:getLabel(p.folderId)})).sort((a,b)=>b.timestamp-a.timestamp);
+  if(!all.length){body.innerHTML='<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg><p><strong>No photos yet</strong></p></div>';return;}
+  const groups={};
+  all.forEach(p=>{const k=new Date(p.timestamp).toLocaleDateString([],{weekday:'long',day:'numeric',month:'long'});if(!groups[k])groups[k]=[];groups[k].push(p);});
+  let html='';
+  for(const[date,photos] of Object.entries(groups)){
+    html+=`<div class="section-label">${esc(date)}</div><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:3px;margin-bottom:8px;">`;
+    photos.forEach(p=>{html+=`<div class="photo-thumb"><img src="${p.thumbUrl||''}" loading="lazy" alt="" onerror="loadThumb(this,'${p.driveFileId}')"><div class="thumb-overlay"><span class="thumb-time" style="max-width:70px;overflow:hidden;text-overflow:ellipsis;">${esc(p.folderLabel)}</span><span class="thumb-sync">☁️</span></div></div>`;});
+    html+=`</div>`;
+  }
+  body.innerHTML=html;
+}
+
+// ─── HELPERS ─────────────────────────────────────────────
+function showModal(id){document.getElementById(id).style.display='flex';}
+function hideModal(id){document.getElementById(id).style.display='none';}
+function overlayClick(e,id){if(e.target.id===id)hideModal(id);}
+function showToast(msg,type){const t=document.getElementById('toast');t.textContent=msg;t.className='toast'+(type?' '+type:'');t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2500);}
+function showProg(pct,lbl){const el=document.getElementById('uprog');el.classList.add('show');document.getElementById('uprog-bar').style.width=pct+'%';document.getElementById('uprog-lbl').textContent=lbl||'Working...';}
+function hideProg(){document.getElementById('uprog').classList.remove('show');document.getElementById('uprog-bar').style.width='0%';}
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function pad(n){return String(n).padStart(2,'0');}
+
+// ─── INIT ────────────────────────────────────────────────
+(async function init(){
+  // Check if returning from OAuth callback
+  const urlParams=new URLSearchParams(window.location.search);
+  const authParam=urlParams.get('auth');
+  if(authParam){
+    try{
+      const data=JSON.parse(decodeURIComponent(authParam));
+      accessToken=data.access_token;
+      refreshToken=data.refresh_token;
+      tokenExpiry=Date.now()+(data.expires_in*1000);
+      currentUser={name:data.name,email:data.email};
+      saveSession();
+      // Clean URL
+      window.history.replaceState({},'','/');
+      await loadFromDrive();
+      return;
+    }catch(e){console.error('Auth parse error',e);}
+  }
+  // Try existing session
+  if(loadSession()&&refreshToken){
+    await loadFromDrive();
+  } else {
+    document.getElementById('signin-screen').style.display='flex';
+  }
+})();
+</script>
+</body>
+</html>
 
