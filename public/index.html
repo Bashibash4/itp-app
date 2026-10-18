@@ -800,25 +800,28 @@ function processPhoto(dataUrl, watermarkText){
       const ctx=c.getContext('2d');
       ctx.drawImage(img,0,0,w,h);
 
-      // Watermark bar at bottom
-      const barH=Math.max(36, Math.round(h*0.055));
-      ctx.fillStyle='rgba(0,0,0,0.62)';
+      // Watermark bar at bottom — two lines
+      const fontSize=Math.max(14, Math.round(w*0.022));
+      const lineH=fontSize*1.55;
+      const barH=Math.round(lineH*2+16);
+      ctx.fillStyle='rgba(0,0,0,0.68)';
       ctx.fillRect(0, h-barH, w, barH);
 
-      // Text sizing
-      const fontSize=Math.max(13, Math.round(barH*0.48));
-      ctx.font=`600 ${fontSize}px -apple-system, sans-serif`;
-      ctx.fillStyle='white';
       ctx.textBaseline='middle';
+      ctx.font=`700 ${fontSize}px -apple-system, Helvetica, sans-serif`;
 
-      // Left: folder path
+      // Line 1: folder path (white)
+      ctx.fillStyle='white';
       ctx.textAlign='left';
-      ctx.fillText(watermarkText.path, 10, h-barH/2, w*0.65);
+      ctx.fillText(watermarkText.path, 12, h-barH+lineH*0.6, w-24);
 
-      // Right: date + time
+      // Line 2: project name left, date right
+      ctx.font=`500 ${Math.round(fontSize*0.88)}px -apple-system, Helvetica, sans-serif`;
+      ctx.fillStyle='rgba(255,255,255,0.72)';
+      ctx.textAlign='left';
+      ctx.fillText(watermarkText.project, 12, h-barH+lineH*1.55, w*0.6);
       ctx.textAlign='right';
-      ctx.fillStyle='rgba(255,255,255,0.75)';
-      ctx.fillText(watermarkText.date, w-10, h-barH/2);
+      ctx.fillText(watermarkText.date, w-12, h-barH+lineH*1.55);
 
       resolve(c.toDataURL('image/jpeg', 0.82)); // 0.82 quality = good balance
     };
@@ -848,7 +851,8 @@ async function saveAllStaged(fid){
       // Compress + watermark
       const dateStr=d.toLocaleDateString('en-AU',{day:'2-digit',month:'short',year:'numeric'})+' '+d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
       const processed=await processPhoto(sp.dataUrl,{
-        path: currentProject.name ? currentProject.name+' · '+pathLabel : pathLabel,
+        path: pathLabel||folder.name,
+        project: currentProject.name||'ITP',
         date: dateStr
       });
 
@@ -1021,4 +1025,3 @@ function pad(n){return String(n).padStart(2,'0');}
 </script>
 </body>
 </html>
-
