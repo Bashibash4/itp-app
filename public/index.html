@@ -944,8 +944,6 @@ async function saveAllStaged(fid){
       const proj=(currentProject.name||'ITP').replace(/[^a-zA-Z0-9]/g,'_');
       const isDoc=sp.isPhoto===false;
 
-      let uploadDataUrl, fname, mimeType;
-
       let uploadBlob, fname, thumbUrl;
 
       if(isDoc){
