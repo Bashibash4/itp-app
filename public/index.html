@@ -870,11 +870,13 @@ function stageFiles(e){
         if(w>MAX){h=Math.round(h*MAX/w);w=MAX;}
         const c=document.createElement('canvas');c.width=w;c.height=h;
         c.getContext('2d').drawImage(img,0,0,w,h);
-        stagingPhotos.push({dataUrl:ev.target.result,thumbUrl:c.toDataURL('image/jpeg',0.6),rawFile:f,isPhoto:true});
+        const angle=window.orientation||screen.orientation?.angle||0;
+        stagingPhotos.push({dataUrl:ev.target.result,thumbUrl:c.toDataURL('image/jpeg',0.6),rawFile:f,isPhoto:true,captureAngle:angle});
         n++;if(n===files.length)renderBrowse();
       };
       img.onerror=()=>{
-        stagingPhotos.push({dataUrl:ev.target.result,thumbUrl:ev.target.result,rawFile:f,isPhoto:true});
+        const angle=window.orientation||screen.orientation?.angle||0;
+        stagingPhotos.push({dataUrl:ev.target.result,thumbUrl:ev.target.result,rawFile:f,isPhoto:true,captureAngle:angle});
         n++;if(n===files.length)renderBrowse();
       };
       img.src=ev.target.result;
@@ -932,6 +934,101 @@ function getExifOrientation(file){
 }
 
 // Process photo: fix EXIF rotation, resize, watermark — watermark always flat at bottom
+// Draws watermark onto a canvas context given output dimensions
+function drawWatermark(ctx, outW, outH, watermarkText){
+  const barH=Math.round(outH*0.07)+24;
+  ctx.fillStyle='rgba(0,0,0,0.55)';
+  ctx.fillRect(0,outH-barH,outW,barH);
+  const fs=Math.max(12,Math.round(barH*0.38));
+  ctx.font=`bold ${fs}px sans-serif`;
+  ctx.fillStyle='#fff';
+  ctx.textBaseline='middle';
+  const line1=watermarkText.path||'';
+  const line2=`${watermarkText.project||''} · ${watermarkText.date||''}`;
+  ctx.fillText(line1,10,outH-barH+barH*0.3);
+  ctx.font=`${fs}px sans-serif`;
+  ctx.fillText(line2,10,outH-barH+barH*0.72);
+}
+
+// Reads EXIF orientation from raw file (returns 1-8, or 1 if unreadable)
+async function getExifOrientationAsync(file){
+  try { return await getExifOrientation(file); } catch(e){ return 1; }
+}
+
+// Main photo processor — handles EXIF orientation including iOS rotation-lock
+async function processPhotoFromFile(rawFile, fallbackDataUrl, watermarkText){
+  const MAX=1600;
+
+  // Step 1: get EXIF orientation from raw bytes
+  const exifOri = rawFile ? await getExifOrientationAsync(rawFile) : 1;
+
+  // Step 2: load image — try createImageBitmap first (auto-applies EXIF on Android Chrome)
+  let bitmap=null, usedBitmap=false;
+  try {
+    const src = rawFile || await (await fetch(fallbackDataUrl)).blob();
+    // Try with imageOrientation hint (Chrome/Android), fall back silently if unsupported
+    try {
+      bitmap = await createImageBitmap(src, {imageOrientation:'from-image'});
+      usedBitmap = true;
+    } catch(e){
+      bitmap = await createImageBitmap(src);
+      usedBitmap = false;
+    }
+  } catch(e){ bitmap=null; }
+
+  if(!bitmap){
+    // Last resort: old canvas method with EXIF
+    return processPhoto(fallbackDataUrl, watermarkText, exifOri);
+  }
+
+  // Step 3: figure out if we need to manually rotate
+  // If imageOrientation:'from-image' worked, bitmap is already corrected — no manual rotation needed
+  // If it didn't work (usedBitmap=false), we need to apply exifOri ourselves
+  // Additionally: iOS with rotation-lock may report exifOri=1 but image is actually sideways
+  // Detect this by comparing bitmap aspect ratio vs device orientation at capture time
+  let needManualRot = (!usedBitmap && exifOri !== 1) ? exifOri : 1;
+
+  // iOS rotation-lock workaround: if exifOri==6 or 8 but bitmap looks portrait (w<h),
+  // the OS already rotated it — don't rotate again. If exifOri==1 but the capture
+  // orientation hint says landscape, we need to rotate.
+  // We stored captureOrientation on the staging photo object — passed via watermarkText.captureAngle
+  const captureAngle = watermarkText.captureAngle || 0; // degrees: 0=portrait, 90/-90=landscape
+  const bitmapIsPortrait = bitmap.height > bitmap.width;
+  const deviceWasLandscape = Math.abs(captureAngle) === 90;
+
+  if(exifOri===1 && deviceWasLandscape && bitmapIsPortrait){
+    // iOS rotation-lock: device was landscape but image came out portrait — rotate 90°
+    needManualRot = (captureAngle > 0) ? 6 : 8; // 6=rotate CCW 90°, 8=rotate CW 90°
+  }
+
+  const swapped = (needManualRot>=5 && needManualRot<=8);
+  const rawW=bitmap.width, rawH=bitmap.height;
+  const scale=Math.min(1, MAX/Math.max(rawW,rawH));
+  const scaledW=Math.round(rawW*scale), scaledH=Math.round(rawH*scale);
+  const outW=swapped?scaledH:scaledW, outH=swapped?scaledW:scaledH;
+
+  const c=document.createElement('canvas');
+  c.width=outW; c.height=outH;
+  const ctx=c.getContext('2d');
+
+  if(needManualRot===1){
+    ctx.drawImage(bitmap,0,0,outW,outH);
+  } else {
+    ctx.save();
+    switch(needManualRot){
+      case 3: ctx.translate(outW,outH);ctx.rotate(Math.PI); break;
+      case 6: ctx.translate(outW,0);ctx.rotate(0.5*Math.PI); break;
+      case 8: ctx.translate(0,outH);ctx.rotate(-0.5*Math.PI); break;
+    }
+    ctx.drawImage(bitmap,0,0,scaledW,scaledH);
+    ctx.restore();
+  }
+  bitmap.close && bitmap.close();
+
+  drawWatermark(ctx, outW, outH, watermarkText);
+  return c.toDataURL('image/jpeg',0.82);
+}
+
 function processPhoto(dataUrl, watermarkText, orientation){
   return new Promise((resolve)=>{
     const img=new Image();
@@ -954,16 +1051,18 @@ function processPhoto(dataUrl, watermarkText, orientation){
       const ctx=c.getContext('2d');
 
       // Transform canvas to correct for EXIF orientation
+      // Case 6 = phone held portrait, photo taken landscape (rotate CCW 90°)
+      // Case 8 = phone held portrait upside down (rotate CW 90°)
       ctx.save();
       switch(rot){
         case 2: ctx.translate(outW,0);ctx.scale(-1,1); break;
         case 3: ctx.translate(outW,outH);ctx.rotate(Math.PI); break;
         case 4: ctx.translate(0,outH);ctx.scale(1,-1); break;
-        case 5: ctx.rotate(0.5*Math.PI);ctx.scale(1,-1); break;
-        case 6: ctx.translate(outW,0);ctx.rotate(0.5*Math.PI); break;
-        case 7: ctx.translate(outW,outH);ctx.rotate(0.5*Math.PI);ctx.scale(1,-1); break;
-        case 8: ctx.translate(0,outH);ctx.rotate(-0.5*Math.PI); break;
-        default: break; // 1 = normal
+        case 5: ctx.translate(0,0);ctx.rotate(0.5*Math.PI);ctx.scale(1,-1); break;
+        case 6: ctx.translate(0,outH);ctx.rotate(-0.5*Math.PI); break;
+        case 7: ctx.translate(outH,outW);ctx.rotate(0.5*Math.PI);ctx.scale(-1,1); break;
+        case 8: ctx.translate(outW,0);ctx.rotate(0.5*Math.PI); break;
+        default: break;
       }
       ctx.drawImage(img,0,0,srcW,srcH);
       ctx.restore();
@@ -1020,15 +1119,14 @@ async function saveAllStaged(fid){
         fname=`${proj}_${folder.name.replace(/[^a-zA-Z0-9]/g,'_')}_${ds}_${seq}.jpg`;
         showProg(Math.round(done/total*75),'Processing '+(done+1)+' of '+total+'...');
         const dateStr=d.toLocaleDateString('en-AU',{day:'2-digit',month:'short',year:'numeric'})+' '+d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
-        // Read EXIF orientation before processing
-        const orientation = sp.rawFile ? await getExifOrientation(sp.rawFile) : (sp.orientation||1);
-        // Process from rawFile if available (avoids double base64 decode)
-        const sourceDataUrl = sp.rawFile ? await readFileAsDataUrl(sp.rawFile) : sp.dataUrl;
-        const processedDataUrl=await processPhoto(sourceDataUrl,{
+        // Use createImageBitmap which auto-applies EXIF orientation on Android/iOS
+        // This avoids Android stripping EXIF before passing to browser
+        const processedDataUrl=await processPhotoFromFile(sp.rawFile||null, sp.dataUrl,{
           path: pathLabel||folder.name,
           project: currentProject.name||'ITP',
-          date: dateStr
-        }, orientation);
+          date: dateStr,
+          captureAngle: sp.captureAngle||0
+        });
         thumbUrl=processedDataUrl;
         // Convert to blob directly — avoids fetch() roundtrip
         const b64=processedDataUrl.split(',')[1];
@@ -1086,7 +1184,8 @@ function capturePhoto(){
   c.getContext('2d').drawImage(v,0,0,c.width,c.height);
   const url=c.toDataURL('image/jpeg',0.82);
   cameraCaptures.push(url);
-  stagingPhotos.push({dataUrl:url,thumbUrl:url,isPhoto:true});
+  const angle=window.orientation||screen.orientation?.angle||0;
+  stagingPhotos.push({dataUrl:url,thumbUrl:url,isPhoto:true,captureAngle:angle});
   updateCamStrip();
   const f=document.createElement('div');
   f.style.cssText='position:absolute;inset:0;background:white;opacity:0.7;pointer-events:none;z-index:10;transition:opacity 0.12s;';
