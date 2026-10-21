@@ -1025,6 +1025,18 @@ async function processPhotoFromFile(rawFile, fallbackDataUrl, watermarkText){
   }
   bitmap.close && bitmap.close();
 
+  // If result is landscape (wider than tall), rotate 90° so it displays portrait on phone
+  if(outW > outH){
+    const c2=document.createElement('canvas');
+    c2.width=outH; c2.height=outW;
+    const ctx2=c2.getContext('2d');
+    ctx2.translate(outH/2, outW/2);
+    ctx2.rotate(-0.5*Math.PI);
+    ctx2.drawImage(c, -outW/2, -outH/2);
+    drawWatermark(ctx2, c2.width, c2.height, watermarkText);
+    return c2.toDataURL('image/jpeg',0.82);
+  }
+
   drawWatermark(ctx, outW, outH, watermarkText);
   return c.toDataURL('image/jpeg',0.82);
 }
@@ -1082,6 +1094,30 @@ function processPhoto(dataUrl, watermarkText, orientation){
       ctx.fillStyle='rgba(255,255,255,0.72)';
       ctx.textAlign='left';ctx.fillText(watermarkText.project,12,H-barH+lineH*1.55,W*0.6);
       ctx.textAlign='right';ctx.fillText(watermarkText.date,W-12,H-barH+lineH*1.55);
+
+      // If result is landscape, rotate 90° so it displays portrait on phone
+      if(outW > outH){
+        const c2=document.createElement('canvas');
+        c2.width=outH; c2.height=outW;
+        const ctx2=c2.getContext('2d');
+        ctx2.translate(outH/2,outW/2);
+        ctx2.rotate(-0.5*Math.PI);
+        ctx2.drawImage(c,-outW/2,-outH/2);
+        // Redraw watermark on rotated canvas
+        const W2=c2.width,H2=c2.height;
+        const fs2=Math.max(14,Math.round(W2*0.022));
+        const lh2=fs2*1.55,bh2=Math.round(lh2*2+16);
+        ctx2.fillStyle='rgba(0,0,0,0.68)';ctx2.fillRect(0,H2-bh2,W2,bh2);
+        ctx2.textBaseline='middle';ctx2.font=`700 ${fs2}px -apple-system,Helvetica,sans-serif`;
+        ctx2.fillStyle='white';ctx2.textAlign='left';
+        ctx2.fillText(watermarkText.path,12,H2-bh2+lh2*0.6,W2-24);
+        ctx2.font=`500 ${Math.round(fs2*0.88)}px -apple-system,Helvetica,sans-serif`;
+        ctx2.fillStyle='rgba(255,255,255,0.72)';
+        ctx2.textAlign='left';ctx2.fillText(watermarkText.project,12,H2-bh2+lh2*1.55,W2*0.6);
+        ctx2.textAlign='right';ctx2.fillText(watermarkText.date,W2-12,H2-bh2+lh2*1.55);
+        resolve(c2.toDataURL('image/jpeg',0.82));
+        return;
+      }
 
       resolve(c.toDataURL('image/jpeg',0.82));
     };
