@@ -481,7 +481,13 @@ async function saveMeta(){
   const proj=S.projects.find(p=>p.id===currentProject.id);
   if(!proj) return;
   proj._driveFolderId=proj._driveFolderId||await getOrCreateFolder(proj.name,appRootId);
-  const data=JSON.stringify({folders:currentProject.folders,photos:currentProject.photos});
+  // Strip thumbUrls before saving — they are large base64 strings that bloat the file
+  // Thumbnails are re-fetched from Drive when needed
+  const photosToSave={};
+  for(const [k,p] of Object.entries(currentProject.photos)){
+    photosToSave[k]={id:p.id,driveFileId:p.driveFileId,name:p.name,timestamp:p.timestamp,folderId:p.folderId,fileType:p.fileType||'photo'};
+  }
+  const data=JSON.stringify({folders:currentProject.folders,photos:photosToSave});
   if(proj.metaFileId) await drivePatch(proj.metaFileId,data,'application/json');
   else proj.metaFileId=await driveCreate('itp_meta.json','application/json',proj._driveFolderId,data,'application/json');
   await saveIndex();
@@ -727,7 +733,7 @@ async function confirmAddFolder(){
   const name=document.getElementById('f-name').value.trim();if(!name)return;
   currentProject.folders.push({id:'f'+Date.now(),parentId:currentFolderId(),name,desc:document.getElementById('f-desc').value.trim(),createdAt:Date.now()});
   hideModal('modal-folder');renderBrowse();showToast('📁 '+name+' created');
-  try{await saveMeta();}catch(e){}
+  saveMeta().catch(e=>console.warn('Save failed:',e));
 }
 function showEditFolderModal(fid){
   editingFolderId=fid;
@@ -740,7 +746,7 @@ async function saveEditFolder(){
   const f=currentProject.folders.find(x=>x.id===editingFolderId);if(!f)return;
   f.name=name;f.desc=document.getElementById('ef-desc').value.trim();
   hideModal('modal-edit-folder');renderBrowse();showToast('✅ Folder updated');
-  try{await saveMeta();}catch(e){}
+  saveMeta().catch(e=>console.warn('Save failed:',e));
 }
 async function deleteFolderConfirm(){
   if(!confirm('Delete this folder and ALL subfolders and photos inside it?'))return;
@@ -993,10 +999,10 @@ async function saveAllStaged(fid){
       done++;
     }
     stagingPhotos=[];stagingFolderId=null;
-    showProg(100,'Saving...');
-    await saveMeta();
-    setTimeout(hideProg,600);renderBrowse();
-    showToast(`📸 ${total} photo${total!==1?'s':''} uploaded`);
+    hideProg();renderBrowse();
+    showToast(`📸 ${total} photo${total!==1?'s':''} uploaded ✓`);
+    // Save metadata in background — don't block the user
+    saveMeta().catch(e=>console.warn('Meta save failed:',e));
   } catch(e){hideProg();console.error(e);showToast('Upload failed: '+e.message,'error');}
 }
 
