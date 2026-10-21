@@ -959,58 +959,49 @@ async function getExifOrientationAsync(file){
 async function processPhotoFromFile(rawFile, fallbackDataUrl, watermarkText){
   const MAX=1600;
 
-  // Load image via createImageBitmap (auto-applies EXIF on Android/Chrome)
-  // Falls back to Image element if unavailable
-  let imgW, imgH, drawFn;
-  let bitmap=null;
+  // Load the image source
+  let source=null;
   try {
-    const src = rawFile || await (await fetch(fallbackDataUrl)).blob();
-    try { bitmap = await createImageBitmap(src, {imageOrientation:'from-image'}); }
-    catch(e){ bitmap = await createImageBitmap(src); }
+    const blob = rawFile || await (await fetch(fallbackDataUrl)).blob();
+    try { source = await createImageBitmap(blob, {imageOrientation:'from-image'}); }
+    catch(e){ source = await createImageBitmap(blob); }
   } catch(e){}
-
-  if(bitmap){ imgW=bitmap.width; imgH=bitmap.height; drawFn=(c,w,h)=>c.drawImage(bitmap,0,0,w,h); }
-  else {
-    // Fallback: use Image element
-    const img = await new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=fallbackDataUrl; });
-    imgW=img.naturalWidth; imgH=img.naturalHeight; drawFn=(c,w,h)=>c.drawImage(img,0,0,w,h);
+  if(!source){
+    // Final fallback
+    source = await new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=fallbackDataUrl; });
   }
 
-  // Scale to MAX on longest side
-  const scale=Math.min(1, MAX/Math.max(imgW,imgH));
-  let drawW=Math.round(imgW*scale), drawH=Math.round(imgH*scale);
+  const natW = source.width || source.naturalWidth;
+  const natH = source.height || source.naturalHeight;
 
-  // ALWAYS output portrait (tall) — if image is landscape, rotate it 90° CCW
-  const isLandscape = drawW > drawH;
-  const outW = isLandscape ? drawH : drawW;
-  const outH = isLandscape ? drawW : drawH;
+  // Scale so longest side = MAX
+  const scale = Math.min(1, MAX / Math.max(natW, natH));
+  const srcW = Math.round(natW * scale);
+  const srcH = Math.round(natH * scale);
 
-  const c=document.createElement('canvas');
-  c.width=outW; c.height=outH;
-  const ctx=c.getContext('2d');
+  // Step 1: draw image into a correctly-sized intermediate canvas
+  const tmp = document.createElement('canvas');
+  tmp.width = srcW; tmp.height = srcH;
+  tmp.getContext('2d').drawImage(source, 0, 0, srcW, srcH);
+  if(source.close) source.close();
 
-  if(isLandscape){
-    // Rotate landscape to portrait: translate to center, rotate -90°, draw
-    ctx.save();
-    ctx.translate(outW/2, outH/2);
-    ctx.rotate(-0.5*Math.PI);
-    drawFn(ctx, drawH, drawW); // draw at -drawW/2, -drawH/2 offset
-    ctx.restore();
-    // Redo: proper rotate-into-canvas approach
-    ctx.clearRect(0,0,outW,outH);
-    ctx.save();
-    ctx.translate(0, outH);
-    ctx.rotate(-0.5*Math.PI);
-    drawFn(ctx, drawW, drawH);
-    ctx.restore();
+  // Step 2: if landscape (wider than tall), rotate 90° CCW → becomes portrait
+  let outCanvas;
+  if(srcW > srcH){
+    outCanvas = document.createElement('canvas');
+    outCanvas.width = srcH;   // portrait: width = old height
+    outCanvas.height = srcW;  // portrait: height = old width
+    const ctx2 = outCanvas.getContext('2d');
+    // Rotate -90°: origin moves to bottom-left of new canvas
+    ctx2.translate(0, srcW);
+    ctx2.rotate(-Math.PI / 2);
+    ctx2.drawImage(tmp, 0, 0, srcW, srcH);
   } else {
-    drawFn(ctx, outW, outH);
+    outCanvas = tmp;
   }
 
-  if(bitmap) bitmap.close && bitmap.close();
-
-  drawWatermark(ctx, outW, outH, watermarkText);
-  return c.toDataURL('image/jpeg',0.82);
+  drawWatermark(outCanvas.getContext('2d'), outCanvas.width, outCanvas.height, watermarkText);
+  return outCanvas.toDataURL('image/jpeg', 0.82);
 }
 
 function processPhoto(dataUrl, watermarkText, orientation){
