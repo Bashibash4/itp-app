@@ -265,7 +265,6 @@ input[type=file]{display:none;}
   <img class="lightbox-img" id="lb-img" alt="">
   <div class="lightbox-bar">
     <div class="lightbox-info"><div class="lightbox-name" id="lb-name"></div><div class="lightbox-time" id="lb-time"></div></div>
-    <button onclick="rotateCurrentPhoto()" style="background:rgba(255,255,255,0.12);border:none;color:white;border-radius:var(--radius-sm);padding:8px 12px;font-size:18px;cursor:pointer;margin-right:6px;">↻</button>
     <button class="lightbox-del" onclick="deletePhotoFromLightbox()">Delete</button>
   </div>
 </div>
@@ -892,85 +891,95 @@ function getFolderPathLabel(fid){
   return parts.join(' > ');
 }
 
-// Read EXIF orientation from a file's raw bytes
+// Read EXIF orientation tag from raw file bytes (checks first 64KB)
 function getExifOrientation(file){
   return new Promise(resolve=>{
     const reader=new FileReader();
     reader.onload=e=>{
-      const view=new DataView(e.target.result);
-      if(view.getUint16(0,false)!==0xFFD8){return resolve(1);}
-      let offset=2;
-      while(offset<view.byteLength){
-        if(view.getUint16(offset,false)===0xFFE1){
-          if(view.getUint32(offset+4,false)!==0x45786966){return resolve(1);}
-          const little=view.getUint16(offset+10,false)===0x4949;
-          const tags=view.getUint16(offset+14,little);
-          for(let i=0;i<tags;i++){
-            if(view.getUint16(offset+16+i*12,little)===0x0112){
-              return resolve(view.getUint16(offset+24+i*12,little));
+      try {
+        const buf=e.target.result;
+        const view=new DataView(buf);
+        // Must be JPEG
+        if(view.getUint16(0,false)!==0xFFD8) return resolve(1);
+        let offset=2, len=buf.byteLength;
+        while(offset+4<len){
+          const marker=view.getUint16(offset,false);
+          const segLen=view.getUint16(offset+2,false);
+          if(marker===0xFFE1){ // APP1 - EXIF
+            // Check for "Exif\0\0" header
+            if(view.getUint32(offset+4,false)===0x45786966 && view.getUint16(offset+8,false)===0){
+              const tiffStart=offset+10;
+              const little=view.getUint16(tiffStart,false)===0x4949;
+              const ifdOffset=view.getUint32(tiffStart+4,little);
+              const entries=view.getUint16(tiffStart+ifdOffset,little);
+              for(let i=0;i<entries;i++){
+                const tag=view.getUint16(tiffStart+ifdOffset+2+i*12,little);
+                if(tag===0x0112){ // Orientation
+                  return resolve(view.getUint16(tiffStart+ifdOffset+2+i*12+8,little));
+                }
+              }
             }
+            return resolve(1);
           }
-          return resolve(1);
+          if((marker&0xFF00)!==0xFF00) break;
+          offset+=2+segLen;
         }
-        offset+=2+view.getUint16(offset+2,false);
-      }
+      } catch(e){}
       resolve(1);
     };
     reader.readAsArrayBuffer(file.slice(0,65536));
   });
 }
 
-// Apply EXIF orientation to canvas context before drawing
-function applyOrientation(ctx, orientation, w, h){
-  switch(orientation){
-    case 2: ctx.transform(-1,0,0,1,w,0); break;
-    case 3: ctx.transform(-1,0,0,-1,w,h); break;
-    case 4: ctx.transform(1,0,0,-1,0,h); break;
-    case 5: ctx.transform(0,1,1,0,0,0); break;
-    case 6: ctx.transform(0,1,-1,0,h,0); break;
-    case 7: ctx.transform(0,-1,-1,0,h,w); break;
-    case 8: ctx.transform(0,-1,1,0,0,w); break;
-    default: break;
-  }
-}
-
-// Compress + watermark + fix orientation. Pass rawFile for EXIF reading.
+// Process photo: fix EXIF rotation, resize, watermark — watermark always flat at bottom
 function processPhoto(dataUrl, watermarkText, orientation){
   return new Promise((resolve)=>{
     const img=new Image();
     img.onload=()=>{
       const MAX=1600;
       const rot=orientation||1;
-      const swapped=(rot>=5&&rot<=8); // 90/270 degree rotations swap w/h
-      let sw=img.width, sh=img.height;
-      // Scale down
-      if(sw>MAX){sh=Math.round(sh*MAX/sw);sw=MAX;}
-      // Canvas dims account for rotation
-      const cw=swapped?sh:sw;
-      const ch=swapped?sw:sh;
+      // Orientations 5-8 are 90/270° — swap width and height
+      const swapped=(rot>=5&&rot<=8);
+      // Work out natural dims after applying orientation
+      let srcW=img.naturalWidth, srcH=img.naturalHeight;
+      // Scale down the SOURCE dims
+      const scale=Math.min(1, MAX/Math.max(srcW,srcH));
+      srcW=Math.round(srcW*scale); srcH=Math.round(srcH*scale);
+      // Output canvas dims — swapped orientations produce landscape from portrait source
+      const outW=swapped?srcH:srcW;
+      const outH=swapped?srcW:srcH;
+
       const c=document.createElement('canvas');
-      c.width=cw; c.height=ch;
+      c.width=outW; c.height=outH;
       const ctx=c.getContext('2d');
-      // Apply EXIF rotation
+
+      // Transform canvas to correct for EXIF orientation
       ctx.save();
-      if(swapped){ ctx.translate(cw/2,ch/2); }
-      applyOrientation(ctx,rot,sw,sh);
-      if(swapped){ ctx.translate(-sw/2,-sh/2); }
-      ctx.drawImage(img,0,0,sw,sh);
+      switch(rot){
+        case 2: ctx.translate(outW,0);ctx.scale(-1,1); break;
+        case 3: ctx.translate(outW,outH);ctx.rotate(Math.PI); break;
+        case 4: ctx.translate(0,outH);ctx.scale(1,-1); break;
+        case 5: ctx.rotate(0.5*Math.PI);ctx.scale(1,-1); break;
+        case 6: ctx.translate(outW,0);ctx.rotate(0.5*Math.PI); break;
+        case 7: ctx.translate(outW,outH);ctx.rotate(0.5*Math.PI);ctx.scale(1,-1); break;
+        case 8: ctx.translate(0,outH);ctx.rotate(-0.5*Math.PI); break;
+        default: break; // 1 = normal
+      }
+      ctx.drawImage(img,0,0,srcW,srcH);
       ctx.restore();
 
-      // Watermark bar at bottom — two lines
-      const W=cw, H=ch;
+      // Watermark — always drawn on the output canvas (already correctly oriented)
+      const W=outW, H=outH;
       const fontSize=Math.max(14,Math.round(W*0.022));
       const lineH=fontSize*1.55;
       const barH=Math.round(lineH*2+16);
       ctx.fillStyle='rgba(0,0,0,0.68)';
       ctx.fillRect(0,H-barH,W,barH);
       ctx.textBaseline='middle';
-      ctx.font=`700 ${fontSize}px -apple-system, Helvetica, sans-serif`;
+      ctx.font=`700 ${fontSize}px -apple-system,Helvetica,sans-serif`;
       ctx.fillStyle='white';ctx.textAlign='left';
       ctx.fillText(watermarkText.path,12,H-barH+lineH*0.6,W-24);
-      ctx.font=`500 ${Math.round(fontSize*0.88)}px -apple-system, Helvetica, sans-serif`;
+      ctx.font=`500 ${Math.round(fontSize*0.88)}px -apple-system,Helvetica,sans-serif`;
       ctx.fillStyle='rgba(255,255,255,0.72)';
       ctx.textAlign='left';ctx.fillText(watermarkText.project,12,H-barH+lineH*1.55,W*0.6);
       ctx.textAlign='right';ctx.fillText(watermarkText.date,W-12,H-barH+lineH*1.55);
