@@ -959,83 +959,55 @@ async function getExifOrientationAsync(file){
 async function processPhotoFromFile(rawFile, fallbackDataUrl, watermarkText){
   const MAX=1600;
 
-  // Step 1: get EXIF orientation from raw bytes
-  const exifOri = rawFile ? await getExifOrientationAsync(rawFile) : 1;
-
-  // Step 2: load image — try createImageBitmap first (auto-applies EXIF on Android Chrome)
-  let bitmap=null, usedBitmap=false;
+  // Load image via createImageBitmap (auto-applies EXIF on Android/Chrome)
+  // Falls back to Image element if unavailable
+  let imgW, imgH, drawFn;
+  let bitmap=null;
   try {
     const src = rawFile || await (await fetch(fallbackDataUrl)).blob();
-    // Try with imageOrientation hint (Chrome/Android), fall back silently if unsupported
-    try {
-      bitmap = await createImageBitmap(src, {imageOrientation:'from-image'});
-      usedBitmap = true;
-    } catch(e){
-      bitmap = await createImageBitmap(src);
-      usedBitmap = false;
-    }
-  } catch(e){ bitmap=null; }
+    try { bitmap = await createImageBitmap(src, {imageOrientation:'from-image'}); }
+    catch(e){ bitmap = await createImageBitmap(src); }
+  } catch(e){}
 
-  if(!bitmap){
-    // Last resort: old canvas method with EXIF
-    return processPhoto(fallbackDataUrl, watermarkText, exifOri);
+  if(bitmap){ imgW=bitmap.width; imgH=bitmap.height; drawFn=(c,w,h)=>c.drawImage(bitmap,0,0,w,h); }
+  else {
+    // Fallback: use Image element
+    const img = await new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=fallbackDataUrl; });
+    imgW=img.naturalWidth; imgH=img.naturalHeight; drawFn=(c,w,h)=>c.drawImage(img,0,0,w,h);
   }
 
-  // Step 3: figure out if we need to manually rotate
-  // If imageOrientation:'from-image' worked, bitmap is already corrected — no manual rotation needed
-  // If it didn't work (usedBitmap=false), we need to apply exifOri ourselves
-  // Additionally: iOS with rotation-lock may report exifOri=1 but image is actually sideways
-  // Detect this by comparing bitmap aspect ratio vs device orientation at capture time
-  let needManualRot = (!usedBitmap && exifOri !== 1) ? exifOri : 1;
+  // Scale to MAX on longest side
+  const scale=Math.min(1, MAX/Math.max(imgW,imgH));
+  let drawW=Math.round(imgW*scale), drawH=Math.round(imgH*scale);
 
-  // iOS rotation-lock workaround: if exifOri==6 or 8 but bitmap looks portrait (w<h),
-  // the OS already rotated it — don't rotate again. If exifOri==1 but the capture
-  // orientation hint says landscape, we need to rotate.
-  // We stored captureOrientation on the staging photo object — passed via watermarkText.captureAngle
-  const captureAngle = watermarkText.captureAngle || 0; // degrees: 0=portrait, 90/-90=landscape
-  const bitmapIsPortrait = bitmap.height > bitmap.width;
-  const deviceWasLandscape = Math.abs(captureAngle) === 90;
-
-  if(exifOri===1 && deviceWasLandscape && bitmapIsPortrait){
-    // iOS rotation-lock: device was landscape but image came out portrait — rotate 90°
-    needManualRot = (captureAngle > 0) ? 6 : 8; // 6=rotate CCW 90°, 8=rotate CW 90°
-  }
-
-  const swapped = (needManualRot>=5 && needManualRot<=8);
-  const rawW=bitmap.width, rawH=bitmap.height;
-  const scale=Math.min(1, MAX/Math.max(rawW,rawH));
-  const scaledW=Math.round(rawW*scale), scaledH=Math.round(rawH*scale);
-  const outW=swapped?scaledH:scaledW, outH=swapped?scaledW:scaledH;
+  // ALWAYS output portrait (tall) — if image is landscape, rotate it 90° CCW
+  const isLandscape = drawW > drawH;
+  const outW = isLandscape ? drawH : drawW;
+  const outH = isLandscape ? drawW : drawH;
 
   const c=document.createElement('canvas');
   c.width=outW; c.height=outH;
   const ctx=c.getContext('2d');
 
-  if(needManualRot===1){
-    ctx.drawImage(bitmap,0,0,outW,outH);
-  } else {
+  if(isLandscape){
+    // Rotate landscape to portrait: translate to center, rotate -90°, draw
     ctx.save();
-    switch(needManualRot){
-      case 3: ctx.translate(outW,outH);ctx.rotate(Math.PI); break;
-      case 6: ctx.translate(outW,0);ctx.rotate(0.5*Math.PI); break;
-      case 8: ctx.translate(0,outH);ctx.rotate(-0.5*Math.PI); break;
-    }
-    ctx.drawImage(bitmap,0,0,scaledW,scaledH);
+    ctx.translate(outW/2, outH/2);
+    ctx.rotate(-0.5*Math.PI);
+    drawFn(ctx, drawH, drawW); // draw at -drawW/2, -drawH/2 offset
     ctx.restore();
+    // Redo: proper rotate-into-canvas approach
+    ctx.clearRect(0,0,outW,outH);
+    ctx.save();
+    ctx.translate(0, outH);
+    ctx.rotate(-0.5*Math.PI);
+    drawFn(ctx, drawW, drawH);
+    ctx.restore();
+  } else {
+    drawFn(ctx, outW, outH);
   }
-  bitmap.close && bitmap.close();
 
-  // If result is landscape (wider than tall), rotate 90° so it displays portrait on phone
-  if(outW > outH){
-    const c2=document.createElement('canvas');
-    c2.width=outH; c2.height=outW;
-    const ctx2=c2.getContext('2d');
-    ctx2.translate(outH/2, outW/2);
-    ctx2.rotate(-0.5*Math.PI);
-    ctx2.drawImage(c, -outW/2, -outH/2);
-    drawWatermark(ctx2, c2.width, c2.height, watermarkText);
-    return c2.toDataURL('image/jpeg',0.82);
-  }
+  if(bitmap) bitmap.close && bitmap.close();
 
   drawWatermark(ctx, outW, outH, watermarkText);
   return c.toDataURL('image/jpeg',0.82);
@@ -1095,28 +1067,21 @@ function processPhoto(dataUrl, watermarkText, orientation){
       ctx.textAlign='left';ctx.fillText(watermarkText.project,12,H-barH+lineH*1.55,W*0.6);
       ctx.textAlign='right';ctx.fillText(watermarkText.date,W-12,H-barH+lineH*1.55);
 
-      // If result is landscape, rotate 90° so it displays portrait on phone
+      // If result is landscape, rotate to portrait for display
       if(outW > outH){
         const c2=document.createElement('canvas');
         c2.width=outH; c2.height=outW;
         const ctx2=c2.getContext('2d');
-        ctx2.translate(outH/2,outW/2);
-        ctx2.rotate(-0.5*Math.PI);
-        ctx2.drawImage(c,-outW/2,-outH/2);
-        // Redraw watermark on rotated canvas
-        const W2=c2.width,H2=c2.height;
-        const fs2=Math.max(14,Math.round(W2*0.022));
-        const lh2=fs2*1.55,bh2=Math.round(lh2*2+16);
+        ctx2.save();ctx2.translate(0,outW);ctx2.rotate(-0.5*Math.PI);
+        ctx2.drawImage(c,0,0,outW,outH);ctx2.restore();
+        const W2=c2.width,H2=c2.height,fs2=Math.max(14,Math.round(W2*0.022)),lh2=fs2*1.55,bh2=Math.round(lh2*2+16);
         ctx2.fillStyle='rgba(0,0,0,0.68)';ctx2.fillRect(0,H2-bh2,W2,bh2);
         ctx2.textBaseline='middle';ctx2.font=`700 ${fs2}px -apple-system,Helvetica,sans-serif`;
-        ctx2.fillStyle='white';ctx2.textAlign='left';
-        ctx2.fillText(watermarkText.path,12,H2-bh2+lh2*0.6,W2-24);
-        ctx2.font=`500 ${Math.round(fs2*0.88)}px -apple-system,Helvetica,sans-serif`;
-        ctx2.fillStyle='rgba(255,255,255,0.72)';
+        ctx2.fillStyle='white';ctx2.textAlign='left';ctx2.fillText(watermarkText.path,12,H2-bh2+lh2*0.6,W2-24);
+        ctx2.font=`500 ${Math.round(fs2*0.88)}px -apple-system,Helvetica,sans-serif`;ctx2.fillStyle='rgba(255,255,255,0.72)';
         ctx2.textAlign='left';ctx2.fillText(watermarkText.project,12,H2-bh2+lh2*1.55,W2*0.6);
         ctx2.textAlign='right';ctx2.fillText(watermarkText.date,W2-12,H2-bh2+lh2*1.55);
-        resolve(c2.toDataURL('image/jpeg',0.82));
-        return;
+        resolve(c2.toDataURL('image/jpeg',0.82)); return;
       }
 
       resolve(c.toDataURL('image/jpeg',0.82));
