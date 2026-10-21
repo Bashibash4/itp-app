@@ -1007,7 +1007,7 @@ async function processPhotoFromFile(rawFile, fallbackDataUrl, watermarkText){
   {
     const dbg = document.createElement('div');
     dbg.style.cssText='position:fixed;top:10px;left:10px;right:10px;background:rgba(0,0,0,0.85);color:#0f0;font:13px monospace;padding:10px;border-radius:8px;z-index:99999;white-space:pre-wrap;';
-    dbg.textContent = `EXIF: ${exifOrientation}\nDecoded: ${natW}x${natH}\nneedsRotate: ${needsRotate}\nrotateCCW: ${rotateCCW}\ncaptureAngle: ${watermarkText.captureAngle}\nrawFile: ${rawFile?rawFile.name+' '+rawFile.size+'b':'none'}`;
+    dbg.textContent = `EXIF: ${exifOrientation}\nDecoded: ${natW}x${natH}\nneedsRotate: ${needsRotate}\ncaptureAngle: ${watermarkText.captureAngle}\nrawFile: ${rawFile?rawFile.name+' '+rawFile.size+'b':'none'}`;
     document.body.appendChild(dbg);
     setTimeout(()=>dbg.remove(), 15000);
   }
@@ -1209,24 +1209,18 @@ function capturePhoto(){
   const v=document.getElementById('cam-video'),c=document.getElementById('cam-canvas');
   const vw=v.videoWidth||1280, vh=v.videoHeight||720;
   const angle=window.orientation!==undefined?window.orientation:(screen.orientation?.angle||0);
-  const isLandscape=(angle===90||angle===-90||angle===270);
 
-  if(isLandscape){
-    // Phone held sideways: video frame is portrait (iOS locks feed to portrait)
-    // We need to rotate the canvas -90° or +90° to make the scene upright
-    // Swap dims: output will be landscape (vw tall → wide, vh wide → tall)
+  // Detect landscape from VIDEO dimensions — reliable even with rotation lock ON
+  // On iOS with rotation lock, window.orientation stays 0, but video WxH reveals true orientation
+  const videoIsLandscape = vw > vh;
+
+  if(videoIsLandscape){
+    // Video is landscape → rotate -90° to portrait so photo displays upright
     c.width=vh; c.height=vw;
     const ctx=c.getContext('2d');
     ctx.save();
-    if(angle===90||angle===-270){
-      // Phone rotated 90° CW → rotate canvas -90° to correct
-      ctx.translate(0,vw);
-      ctx.rotate(-Math.PI/2);
-    } else {
-      // Phone rotated 90° CCW → rotate canvas +90° to correct
-      ctx.translate(vh,0);
-      ctx.rotate(Math.PI/2);
-    }
+    ctx.translate(0, vw);
+    ctx.rotate(-Math.PI/2);
     ctx.drawImage(v,0,0,vw,vh);
     ctx.restore();
   } else {
@@ -1236,7 +1230,7 @@ function capturePhoto(){
 
   const url=c.toDataURL('image/jpeg',0.82);
   cameraCaptures.push(url);
-  stagingPhotos.push({dataUrl:url,thumbUrl:url,isPhoto:true,captureAngle:angle});
+  stagingPhotos.push({dataUrl:url,thumbUrl:url,isPhoto:true,captureAngle:angle,videoIsLandscape});
   updateCamStrip();
   const f=document.createElement('div');
   f.style.cssText='position:absolute;inset:0;background:white;opacity:0.7;pointer-events:none;z-index:10;transition:opacity 0.12s;';
