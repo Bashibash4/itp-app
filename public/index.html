@@ -958,14 +958,17 @@ async function getExifOrientationAsync(file){
 // Main photo processor — handles EXIF orientation including iOS rotation-lock
 async function processPhotoFromFile(rawFile, fallbackDataUrl, watermarkText){
   const MAX=1600;
-  // Always load via Image element — works everywhere including iOS Safari
-  // Use rawFile object URL if available (preserves EXIF for browser to decode)
+
+  // Step 1: Read raw EXIF orientation BEFORE browser decode
+  // This tells us what the camera physically wrote
+  const exifOrientation = rawFile ? await getExifOrientationAsync(rawFile) : 1;
+
+  // Step 2: Load via Image element — iOS Safari auto-applies EXIF during decode
   const url = rawFile ? URL.createObjectURL(rawFile) : fallbackDataUrl;
   const img = await new Promise((res,rej)=>{
     const i=new Image();
     i.onload=()=>res(i);
     i.onerror=()=>{
-      // If object URL failed, try the dataUrl directly
       if(rawFile && url !== fallbackDataUrl){
         const i2=new Image();
         i2.onload=()=>res(i2);
@@ -977,26 +980,51 @@ async function processPhotoFromFile(rawFile, fallbackDataUrl, watermarkText){
   });
   if(rawFile) URL.revokeObjectURL(url);
 
+  // Step 3: Determine decoded dimensions
   const natW=img.naturalWidth, natH=img.naturalHeight;
-  const scale=Math.min(1, MAX/Math.max(natW,natH));
-  const srcW=Math.round(natW*scale), srcH=Math.round(natH*scale);
 
-  // Draw into temp canvas at scaled size
-  const tmp=document.createElement('canvas');
-  tmp.width=srcW; tmp.height=srcH;
-  tmp.getContext('2d').drawImage(img,0,0,srcW,srcH);
+  // Step 4: Determine if we need to manually rotate
+  // EXIF 6 = 90° CW (landscape, phone held CCW) — browser may or may NOT auto-apply
+  // EXIF 8 = 90° CCW (landscape, phone held CW) — browser may or may NOT auto-apply
+  // After browser decode: if decoded is STILL landscape (natW > natH) AND
+  // EXIF says it should be rotated (6 or 8), browser didn't auto-apply → rotate manually
+  // If decoded is already portrait (natH > natW) → browser auto-applied, done
+  // If EXIF=1 and decoded is landscape → truly landscape photo, rotate to portrait
 
-  // If landscape (wider than tall) → rotate -90° to make portrait
+  const needsRotate = natW > natH; // decoded image is landscape → always rotate to portrait
+  // Determine rotation direction from EXIF
+  // EXIF 8 = CCW capture → rotate +90° (CW) to correct
+  // Otherwise (EXIF 6, 1 with landscape) → rotate -90° (CCW) to correct
+  const rotateCCW = exifOrientation !== 8; // default: rotate -90°
+
+  const scale = Math.min(1, MAX / Math.max(natW, natH));
+  const srcW = Math.round(natW * scale);
+  const srcH = Math.round(natH * scale);
+
+  // Step 5: Draw to canvas applying rotation if needed
   let out;
-  if(srcW > srcH){
-    out=document.createElement('canvas');
-    out.width=srcH; out.height=srcW; // swapped
-    const ctx=out.getContext('2d');
-    ctx.translate(0, srcW);
-    ctx.rotate(-Math.PI/2);
-    ctx.drawImage(tmp, 0, 0, srcW, srcH);
+  if(needsRotate){
+    // Rotated canvas: swap width/height
+    out = document.createElement('canvas');
+    out.width = srcH;   // portrait width = landscape height
+    out.height = srcW;  // portrait height = landscape width
+    const ctx = out.getContext('2d');
+    if(rotateCCW){
+      // Rotate -90°: translate to bottom-left, rotate CCW
+      ctx.translate(0, srcW);
+      ctx.rotate(-Math.PI / 2);
+    } else {
+      // Rotate +90°: translate to top-right, rotate CW
+      ctx.translate(srcH, 0);
+      ctx.rotate(Math.PI / 2);
+    }
+    ctx.drawImage(img, 0, 0, srcW, srcH);
   } else {
-    out=tmp;
+    // Portrait already — just draw scaled
+    out = document.createElement('canvas');
+    out.width = srcW;
+    out.height = srcH;
+    out.getContext('2d').drawImage(img, 0, 0, srcW, srcH);
   }
 
   drawWatermark(out.getContext('2d'), out.width, out.height, watermarkText);
