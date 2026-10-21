@@ -369,6 +369,12 @@ let selectFolderId=null;
 let selectedPhotoIds=new Set();
 let lbPhotos=[],lbIdx=0,lbFolderId=null;
 let cameraStream=null,cameraFacing='environment',cameraCaptures=[];
+let deviceGamma=0; // tracks left/right tilt from gyroscope (-90 to 90)
+// Listen to device orientation continuously — gamma = left/right tilt
+// When phone held landscape (sideways), |gamma| approaches 90
+window.addEventListener('deviceorientation', function(e){
+  if(e.gamma !== null) deviceGamma = e.gamma;
+});
 
 // ─── DRIVE HELPERS ───────────────────────────────────────
 async function driveList(q){
@@ -1007,7 +1013,7 @@ async function processPhotoFromFile(rawFile, fallbackDataUrl, watermarkText){
   {
     const dbg = document.createElement('div');
     dbg.style.cssText='position:fixed;top:10px;left:10px;right:10px;background:rgba(0,0,0,0.85);color:#0f0;font:13px monospace;padding:10px;border-radius:8px;z-index:99999;white-space:pre-wrap;';
-    dbg.textContent = `EXIF: ${exifOrientation}\nDecoded: ${natW}x${natH}\nneedsRotate: ${needsRotate}\ncaptureAngle: ${watermarkText.captureAngle}\nrawFile: ${rawFile?rawFile.name+' '+rawFile.size+'b':'none'}`;
+    dbg.textContent = `EXIF: ${exifOrientation}\nDecoded: ${natW}x${natH}\nneedsRotate: ${needsRotate}\ngamma: ${watermarkText.captureAngle}\nrawFile: ${rawFile?rawFile.name+' '+rawFile.size+'b':'none'}`;
     document.body.appendChild(dbg);
     setTimeout(()=>dbg.remove(), 15000);
   }
@@ -1208,19 +1214,28 @@ function flipCamera(){cameraFacing=cameraFacing==='environment'?'user':'environm
 function capturePhoto(){
   const v=document.getElementById('cam-video'),c=document.getElementById('cam-canvas');
   const vw=v.videoWidth||1280, vh=v.videoHeight||720;
-  const angle=window.orientation!==undefined?window.orientation:(screen.orientation?.angle||0);
 
-  // Detect landscape from VIDEO dimensions — reliable even with rotation lock ON
-  // On iOS with rotation lock, window.orientation stays 0, but video WxH reveals true orientation
-  const videoIsLandscape = vw > vh;
+  // Use deviceorientation gamma to detect landscape even with rotation lock ON
+  // gamma = left/right tilt: near 0 = portrait, near ±90 = landscape
+  // Threshold 40° gives reliable detection without false positives
+  const absGamma = Math.abs(deviceGamma);
+  const gyroIsLandscape = absGamma > 40;
+  const gyroTiltRight = deviceGamma > 0; // positive gamma = tilted right (home button right side)
 
-  if(videoIsLandscape){
-    // Video is landscape → rotate -90° to portrait so photo displays upright
+  if(gyroIsLandscape){
+    // Phone held sideways → rotate canvas to make photo upright (portrait)
     c.width=vh; c.height=vw;
     const ctx=c.getContext('2d');
     ctx.save();
-    ctx.translate(0, vw);
-    ctx.rotate(-Math.PI/2);
+    if(gyroTiltRight){
+      // Home button on right → rotate -90° (CCW)
+      ctx.translate(0, vw);
+      ctx.rotate(-Math.PI/2);
+    } else {
+      // Home button on left → rotate +90° (CW)
+      ctx.translate(vh, 0);
+      ctx.rotate(Math.PI/2);
+    }
     ctx.drawImage(v,0,0,vw,vh);
     ctx.restore();
   } else {
@@ -1230,7 +1245,7 @@ function capturePhoto(){
 
   const url=c.toDataURL('image/jpeg',0.82);
   cameraCaptures.push(url);
-  stagingPhotos.push({dataUrl:url,thumbUrl:url,isPhoto:true,captureAngle:angle,videoIsLandscape});
+  stagingPhotos.push({dataUrl:url,thumbUrl:url,isPhoto:true,captureAngle:deviceGamma,gyroIsLandscape});
   updateCamStrip();
   const f=document.createElement('div');
   f.style.cssText='position:absolute;inset:0;background:white;opacity:0.7;pointer-events:none;z-index:10;transition:opacity 0.12s;';
