@@ -1000,36 +1000,30 @@ async function processPhotoFromFile(rawFile, fallbackDataUrl, watermarkText){
   // If decoded is already portrait (natH > natW) → browser auto-applied, done
   // If EXIF=1 and decoded is landscape → truly landscape photo, rotate to portrait
 
-  const needsRotate = natW > natH; // decoded image is landscape → always rotate to portrait
-  // Determine rotation direction from EXIF
-  // EXIF 8 = CCW capture → rotate +90° (CW) to correct
-  // Otherwise (EXIF 6, 1 with landscape) → rotate -90° (CCW) to correct
-  const rotateCCW = exifOrientation !== 8; // default: rotate -90°
+  // Only auto-rotate if we have a rawFile with EXIF (uploaded from gallery/files)
+  // Camera captures (rawFile=null) are already correctly oriented by capturePhoto() or manual rotate
+  const needsRotate = rawFile && (natW > natH);
+  const rotateCCW = exifOrientation !== 8;
 
   const scale = Math.min(1, MAX / Math.max(natW, natH));
   const srcW = Math.round(natW * scale);
   const srcH = Math.round(natH * scale);
 
-  // Step 5: Draw to canvas applying rotation if needed
   let out;
   if(needsRotate){
-    // Rotated canvas: swap width/height
     out = document.createElement('canvas');
-    out.width = srcH;   // portrait width = landscape height
-    out.height = srcW;  // portrait height = landscape width
+    out.width = srcH;
+    out.height = srcW;
     const ctx = out.getContext('2d');
     if(rotateCCW){
-      // Rotate -90°: translate to bottom-left, rotate CCW
       ctx.translate(0, srcW);
       ctx.rotate(-Math.PI / 2);
     } else {
-      // Rotate +90°: translate to top-right, rotate CW
       ctx.translate(srcH, 0);
       ctx.rotate(Math.PI / 2);
     }
     ctx.drawImage(img, 0, 0, srcW, srcH);
   } else {
-    // Portrait already — just draw scaled
     out = document.createElement('canvas');
     out.width = srcW;
     out.height = srcH;
@@ -1269,9 +1263,11 @@ function rotateLastPhoto(){
     c.width = img.naturalHeight;
     c.height = img.naturalWidth;
     const ctx = c.getContext('2d');
-    ctx.translate(0, img.naturalWidth);
-    ctx.rotate(-Math.PI/2);
-    ctx.drawImage(img, 0, 0);
+    const w = img.naturalWidth, h = img.naturalHeight;
+    // Rotate +90° CW: translate to top-right corner then rotate
+    ctx.translate(h, 0);
+    ctx.rotate(Math.PI/2);
+    ctx.drawImage(img, 0, 0, w, h);
     const rotated = c.toDataURL('image/jpeg', 0.92);
     sp.dataUrl = rotated;
     sp.thumbUrl = rotated;
