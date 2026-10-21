@@ -1202,6 +1202,17 @@ async function openCamera(fid){
   el.style.display='flex';el.style.flexDirection='column';
   document.getElementById('cam-folder-label').textContent=currentProject.folders.find(f=>f.id===fid)?.name||'';
   updateCamStrip();await startCameraStream();
+  // Request device orientation permission on iOS (requires user gesture — camera open counts)
+  if(typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function'){
+    try{
+      const perm = await DeviceOrientationEvent.requestPermission();
+      if(perm === 'granted'){
+        window.addEventListener('deviceorientation', function handler(e){
+          if(e.gamma !== null) deviceGamma = e.gamma;
+        });
+      }
+    }catch(e){}
+  }
 }
 async function startCameraStream(){
   if(cameraStream)cameraStream.getTracks().forEach(t=>t.stop());
