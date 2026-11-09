@@ -290,6 +290,7 @@ input[type=file]{display:none;}
 </div>
 
 <div class="toast" id="toast"></div>
+<div id="queue-badge" style="display:none;position:fixed;top:12px;left:50%;transform:translateX(-50%);background:#f59e0b;color:#000;font-size:12px;font-weight:700;padding:5px 14px;border-radius:20px;z-index:500;cursor:pointer;" onclick="retrySyncQueue()"></div>
 <div class="upload-progress" id="uprog"><span id="uprog-lbl" style="font-size:13px;color:var(--text2);white-space:nowrap;"></span><div class="progress-bar-wrap"><div class="progress-bar-fill" id="uprog-bar"></div></div></div>
 <input type="file" id="cam-input" accept="image/*" multiple>
 <input type="file" id="gal-input" accept="image/*" multiple>
@@ -297,6 +298,80 @@ input[type=file]{display:none;}
 </div>
 
 <script>
+// ─── UPLOAD SYNC QUEUE ───────────────────────────────────
+const QUEUE_KEY='itp_upload_queue';
+
+function queueGetAll(){
+  try{ return JSON.parse(localStorage.getItem(QUEUE_KEY)||'[]'); }catch(e){ return []; }
+}
+function queueSave(q){
+  try{ localStorage.setItem(QUEUE_KEY,JSON.stringify(q)); }catch(e){ console.warn('Queue save failed',e); }
+}
+function queueAdd(item){
+  const q=queueGetAll();
+  q.push(item);
+  queueSave(q);
+  updateQueueBadge();
+}
+function queueRemove(id){
+  const q=queueGetAll().filter(i=>i.id!==id);
+  queueSave(q);
+  updateQueueBadge();
+}
+function updateQueueBadge(){
+  const q=queueGetAll();
+  const badge=document.getElementById('queue-badge');
+  if(!badge) return;
+  if(q.length>0){
+    badge.textContent=q.length+' pending';
+    badge.style.display='inline-block';
+  } else {
+    badge.style.display='none';
+  }
+}
+async function retrySyncQueue(){
+  const q=queueGetAll();
+  if(!q.length) return;
+  console.log('[ITP] Retrying',q.length,'queued uploads...');
+  let retried=0;
+  for(const item of q){
+    try{
+      // Re-resolve the Drive folder path for this folder ID
+      const driveFid=await ensureDrivePath(item.folderId);
+      const token=await getAccessToken();
+      if(!token) break;
+      // Convert base64 back to blob
+      const bytes=atob(item.b64);
+      const arr=new Uint8Array(bytes.length);
+      for(let i=0;i<bytes.length;i++) arr[i]=bytes.charCodeAt(i);
+      const blob=new Blob([arr],{type:'image/jpeg'});
+      const meta=JSON.stringify({name:item.fname,parents:[driveFid]});
+      const form=new FormData();
+      form.append('metadata',new Blob([meta],{type:'application/json'}));
+      form.append('file',blob);
+      const r=await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
+        {method:'POST',headers:{Authorization:'Bearer '+token},body:form});
+      if(!r.ok) throw new Error('Upload '+r.status);
+      const {id:driveFileId}=await r.json();
+      // Add to project photos
+      currentProject.photos[driveFileId]={
+        id:item.ts,driveFileId,name:item.fname,timestamp:item.ts,
+        folderId:item.folderId,fileType:'photo',thumbUrl:item.thumbUrl
+      };
+      queueRemove(item.id);
+      retried++;
+    }catch(e){
+      console.warn('[ITP] Queue retry failed for',item.fname,e);
+    }
+  }
+  if(retried>0){
+    showToast(`☁️ ${retried} pending photo${retried!==1?'s':''} uploaded ✓`);
+    saveMeta().catch(()=>{});
+    renderBrowse();
+  }
+  updateQueueBadge();
+}
+
 // ─── AUTH ────────────────────────────────────────────────
 let accessToken=null;
 let refreshToken=null;
@@ -1116,10 +1191,10 @@ async function saveAllStaged(fid){
   const folder=currentProject.folders.find(f=>f.id===fid);if(!folder)return;
   const total=stagingPhotos.length;
   showProg(0,'Processing photos...');
+  let done=0, failed=0;
   try {
     const driveFid=await ensureDrivePath(fid);
     const pathLabel=getFolderPathLabel(fid);
-    let done=0;
     for(const sp of stagingPhotos){
       const ts=Date.now()+done;
       const d=new Date(ts);
@@ -1159,26 +1234,65 @@ async function saveAllStaged(fid){
         showProg(Math.round((done+0.7)/total*90),'Uploading '+(done+1)+' of '+total+'...');
       }
 
-      // Upload to Drive
-      const token=await getAccessToken();
-      const meta=JSON.stringify({name:fname,parents:[driveFid]});
-      const form=new FormData();
-      form.append('metadata',new Blob([meta],{type:'application/json'}));
-      form.append('file',uploadBlob);
-      const r=await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
-        {method:'POST',headers:{Authorization:'Bearer '+token},body:form});
-      if(!r.ok) throw new Error('Upload '+r.status);
-      const {id:driveFileId}=await r.json();
-      currentProject.photos[driveFileId]={
-        id:ts,driveFileId,name:fname,timestamp:ts,folderId:fid,
-        fileType:isDoc?'doc':'photo',
-        thumbUrl
-      };
-      done++;
+      // Upload to Drive — retry once on failure
+      let driveFileId=null;
+      for(let attempt=0;attempt<2;attempt++){
+        try{
+          const token=await getAccessToken();
+          const meta=JSON.stringify({name:fname,parents:[driveFid]});
+          const form=new FormData();
+          form.append('metadata',new Blob([meta],{type:'application/json'}));
+          form.append('file',uploadBlob);
+          const r=await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id',
+            {method:'POST',headers:{Authorization:'Bearer '+token},body:form});
+          if(!r.ok) throw new Error('Upload '+r.status);
+          const data=await r.json();
+          driveFileId=data.id;
+          break;
+        }catch(err){
+          if(attempt===1) console.warn('Upload failed after retry:',fname,err);
+        }
+      }
+      if(driveFileId){
+        currentProject.photos[driveFileId]={
+          id:ts,driveFileId,name:fname,timestamp:ts,folderId:fid,
+          fileType:isDoc?'doc':'photo',
+          thumbUrl
+        };
+        done++;
+      } else if(!isDoc){
+        // Queue for retry — store compressed base64 + folder info
+        try{
+          // Compress to ~60% quality for queue storage to save space
+          const img2=new Image();
+          await new Promise(r=>{img2.onload=r;img2.src=uploadBlob?URL.createObjectURL(uploadBlob):sp.dataUrl;});
+          const qc=document.createElement('canvas');
+          qc.width=img2.naturalWidth;qc.height=img2.naturalHeight;
+          qc.getContext('2d').drawImage(img2,0,0);
+          const qb64=qc.toDataURL('image/jpeg',0.6).split(',')[1];
+          queueAdd({
+            id: ts+'_'+Math.random().toString(36).slice(2),
+            ts, fname, folderId:fid,
+            b64: qb64,
+            thumbUrl: thumbUrl||''
+          });
+          failed++;
+        }catch(qe){ failed++; console.warn('Could not queue',fname,qe); }
+      } else {
+        failed++;
+      }
+      showProg(Math.round((done+failed)/total*90), `Uploading ${done+failed} of ${total}...`);
     }
     stagingPhotos=[];stagingFolderId=null;
     hideProg();renderBrowse();
-    showToast(`📸 ${total} photo${total!==1?'s':''} uploaded ✓`);
+    if(failed===0){
+      showToast(`📸 ${done} photo${done!==1?'s':''} uploaded ✓`);
+    } else if(done===0){
+      showToast(`⚠️ No signal — ${failed} photo${failed!==1?'s':''} queued, will upload automatically`,'error');
+    } else {
+      showToast(`📸 ${done} uploaded · ${failed} queued for retry`,'error');
+    }
+    updateQueueBadge();
     // Save metadata in background — don't block the user
     saveMeta().catch(e=>console.warn('Meta save failed:',e));
   } catch(e){hideProg();console.error(e);showToast('Upload failed: '+e.message,'error');}
@@ -1433,6 +1547,9 @@ function pad(n){return String(n).padStart(2,'0');}
   // Try existing session
   if(loadSession()&&refreshToken){
     await loadFromDrive();
+    updateQueueBadge();
+    // Retry any queued uploads after a short delay
+    setTimeout(()=>retrySyncQueue(), 3000);
   } else {
     document.getElementById('signin-screen').style.display='flex';
   }
